@@ -166,9 +166,18 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
     Symptom(
         "keyboard_typing_problem",
         "On-screen keyboard not typing correctly / unresponsive",
-        ["keyboard"],
+        # "when i type"/"while typing"/etc. cover a common real phrasing that never
+        # says the word "keyboard" at all ("something weird when I type, letters
+        # come out wrong") -- understandable to a person, but the plain "keyboard"
+        # component word alone used to miss it entirely, sending it to the guarded
+        # LLM fallback (still correct, just slower/less certain than it needs to be
+        # for a phrasing this common). These are multi-word phrases, not the bare
+        # word "type", specifically so this doesn't start firing on unrelated
+        # complaints that merely mention a device "type" or model.
+        ["keyboard", "when i type", "while typing", "when typing", "as i type"],
         ["not typing", "wont type", "won't type", "stuck", "lagging", "not working",
-         "keeps freezing", "autocorrect is broken", "keeps messing up", "mistypes"],
+         "keeps freezing", "autocorrect is broken", "keeps messing up", "mistypes",
+         "letters come out", "come out wrong", "come out jumbled", "jumbled", "gibberish"],
         "keyboard",
         "fails to register keystrokes correctly or becomes unresponsive during use",
         "keeps messing up when I type, keys stick or don't register",

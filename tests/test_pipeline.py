@@ -85,7 +85,10 @@ def test_llm_fallback_classified_query_still_never_enters_the_cache():
     pipeline = Pipeline(
         cache=cache, stage1_fn=_fake_confident_stage1, stage2_fn=_identity_stage2, llm_client=fake_llm,
     )
-    query = "My Galaxy S23 does this weird thing when I type messages, letters come out jumbled."
+    # phrased to still miss the keyword taxonomy (no "keyboard" or "when I
+    # type"-style phrase, which enrichment.py's taxonomy now catches directly)
+    # so this still exercises the LLM fallback path being tested here.
+    query = "My Galaxy S23 messages come out full of random symbols instead of the letters I actually pressed."
 
     # sanity check the fallback actually fires for this query before trusting the pipeline result
     enrichment = enrich(query, llm_client=fake_llm)

@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 119 tests, enrichment + cache + pipeline + no-hallucination
+tests/             pytest suite: 120 tests, enrichment + cache + pipeline + no-hallucination
 ```
 
 ## Setup
@@ -167,6 +167,25 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    in by `test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_code_fence`
    and `test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_code_fence`,
    using the exact wrapped string observed from the real API.
+
+5. **A common, perfectly understandable phrasing had no deterministic route
+   at all.** The live-tested complaint "my phone does something weird when I
+   type, letters come out wrong" never says "keyboard" -- a person reads it
+   instantly, but `keyboard_typing_problem`'s only component word was the
+   literal string `"keyboard"`, so this fell all the way through to the
+   guarded LLM fallback every time: correct, but slower and dependent on a
+   configured provider for a phrasing that isn't actually rare. Added
+   `"when i type"` / `"while typing"` / `"when typing"` / `"as i type"` as
+   additional component words (specific multi-word phrases, not the bare
+   word "type", so this can't start firing on an unrelated complaint that
+   merely mentions a device "type") plus matching problem phrases
+   (`"letters come out"`, `"come out wrong"`, `"come out jumbled"`,
+   `"jumbled"`, `"gibberish"`) -- this phrasing now classifies instantly with
+   zero network dependency. Locked in by
+   `test_common_typing_phrasing_is_now_caught_deterministically`; the LLM
+   fallback tests that used to rely on this exact wording were moved to a
+   different unseen phrasing so they still demonstrate the fallback path
+   rather than the (now direct) keyword match.
 
 **Known remaining limitations**:
 

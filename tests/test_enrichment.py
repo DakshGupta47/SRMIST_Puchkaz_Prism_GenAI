@@ -206,9 +206,11 @@ def test_llm_fallback_classifies_a_complaint_the_keyword_matcher_could_not():
             return json.dumps({"category": "keyboard_typing_problem"})
 
     # deliberately phrased so the keyword matcher finds nothing: no "keyboard"
-    # component word at all.
+    # component word, and no "when I type"/"while typing"-style phrase either
+    # (those two are now in the taxonomy directly -- see
+    # test_common_typing_phrasing_is_now_caught_deterministically below).
     result = normalize_query(
-        "My Galaxy S23 does this weird thing when I type messages, letters come out jumbled.",
+        "My Galaxy S23 messages come out full of random symbols instead of the letters I actually pressed.",
         llm_client=FakeLLM(),
     )
     assert result.symptom_category == "keyboard_typing_problem"
@@ -381,13 +383,31 @@ def test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_
 {"category": "keyboard_typing_problem"}
 ```'''
 
+    # phrased to still miss the keyword taxonomy (no "keyboard" or "when I
+    # type"-style phrase) so this exercises the LLM path, not the now-direct
+    # keyword match added in test_common_typing_phrasing_is_now_caught_deterministically.
     result = normalize_query(
-        "My phone does something weird when I type, letters come out wrong.",
+        "My phone messages come out full of random symbols instead of the letters I actually pressed.",
         llm_client=MarkdownFencedLLM(),
     )
     assert result.symptom_category == "keyboard_typing_problem"
     assert result.classification_source == "llm_fallback"
     assert result.symptom_confidence == LLM_FALLBACK_CONFIDENCE
+
+
+def test_common_typing_phrasing_is_now_caught_deterministically():
+    """A real complaint tested live against Gemini ('my phone does something
+    weird when I type, letters come out wrong') is perfectly understandable to
+    a person but never says "keyboard" -- it used to fall all the way through
+    to the guarded LLM fallback for want of that one component word, correct
+    but slower and dependent on a configured provider. "when I type"/"while
+    typing"-style phrases are common enough (and specific enough not to
+    collide with anything else) to classify directly and instantly, with zero
+    network dependency, no LLM_PROVIDER required at all.
+    """
+    result = enrich("My phone does something weird when I type, letters come out wrong.")
+    assert result.symptom_category == "keyboard_typing_problem"
+    assert result.classification_source == "keyword_match"
 
 
 def test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_code_fence():
