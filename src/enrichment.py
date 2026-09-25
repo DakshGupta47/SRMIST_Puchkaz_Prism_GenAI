@@ -597,9 +597,9 @@ _VALID_SYMPTOM_CATEGORIES = {s.category for s in SYMPTOM_TAXONOMY} | {_DEFAULT_S
 def _strip_code_fence(text: str) -> str:
     """LLMs (Gemini especially) commonly wrap a JSON response in a markdown
     code fence (```json ... ```) even when explicitly instructed to "respond
-    with strict JSON and nothing else" -- found by testing a real Gemini call,
+    with strict JSON and nothing else" — found by testing a real Gemini call,
     not by inspection: it correctly classified a keyboard complaint but
-    returned the literal string '```json\n{"category": "keyboard_typing_problem"}\n```',
+    returned the literal string '```json\\n{"category": "keyboard_typing_problem"}\\n```',
     which json.loads() rejects outright (it starts with a backtick, not `{`
     or `[`) and enrichment.py's bare `except Exception: pass` was silently
     swallowing, making a correct LLM answer look like a failed one. Stripping
@@ -824,13 +824,25 @@ def generate_variations(
     Always returns a valid, deduped, length-bounded list even if no LLM
     is configured — the template generator alone satisfies the 8-10
     requirement across all five registers. If a real LLM client is
-    available it contributes extra paraphrases, which are validated the
-    same way before being mixed in (never trusted to self-constrain).
+    available AND Stage 0 isn't already confident (classification_source
+    != "keyword_match"), it contributes extra paraphrases, which are
+    validated the same way before being mixed in (never trusted to
+    self-constrain).
+
+    The keyword_match skip is a real, measured latency fix, not a
+    hypothetical one: live-tested against Gemini, a confidently
+    keyword-matched query (full deterministic template coverage already)
+    still paid a real ~1s network round-trip here for "extra paraphrase
+    variety" before the cache was ever even checked — directly working
+    against the ≤300ms fast-path budget. llm_fallback / unclassified
+    results skip this gate and still get the LLM call: they're already
+    paying an LLM cost for classification (or have no keyword signal at
+    all), so the extra diversity is worth it there.
     """
     base = _template_variations(result)
 
     client = llm_client or get_llm_client()
-    if not isinstance(client, MockLLMClient):
+    if result.classification_source != "keyword_match" and not isinstance(client, MockLLMClient):
         extra = _llm_variations(result, client, n=4)
         # validate: non-empty, plausible length, must still mention the device
         # or symptom keyword so a hallucinated unrelated paraphrase is dropped

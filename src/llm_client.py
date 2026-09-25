@@ -50,6 +50,16 @@ class LLMClient(ABC):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         ...
 
+    @property
+    def model_name(self) -> str:
+        """Identifier for what actually produced a response, surfaced in the
+        API's meta.model field (spec Appendix B's worked example shows
+        "model": "gpt-4o-mini" there). Defaults to "mock" so a client that
+        doesn't override this (MockLLMClient) still reports an honest,
+        specific value instead of nothing.
+        """
+        return "mock"
+
 
 class MockLLMClient(LLMClient):
     """Deterministic, offline, rule-based stand-in for a real LLM.
@@ -88,7 +98,8 @@ class GeminiLLMClient(LLMClient):
 
         api_key = os.environ["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(model or os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite"))
+        self._model_name = model or os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite")
+        self._model = genai.GenerativeModel(self._model_name)
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._model.generate_content(
@@ -96,6 +107,10 @@ class GeminiLLMClient(LLMClient):
             request_options={"timeout": _LLM_TIMEOUT_SECONDS},
         )
         return resp.text
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
 
 
 class OpenAILLMClient(LLMClient):
@@ -115,6 +130,10 @@ class OpenAILLMClient(LLMClient):
         )
         return resp.choices[0].message.content or ""
 
+    @property
+    def model_name(self) -> str:
+        return self._model
+
 
 class AnthropicLLMClient(LLMClient):
     def __init__(self, model: str | None = None):
@@ -131,6 +150,10 @@ class AnthropicLLMClient(LLMClient):
             messages=[{"role": "user", "content": user_prompt}],
         )
         return "".join(block.text for block in resp.content if hasattr(block, "text"))
+
+    @property
+    def model_name(self) -> str:
+        return self._model
 
 
 class _TimeoutGuardedClient(LLMClient):
@@ -160,6 +183,10 @@ class _TimeoutGuardedClient(LLMClient):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         future = self._executor.submit(self._inner.complete, system_prompt, user_prompt)
         return future.result(timeout=self._timeout)  # raises TimeoutError past the deadline
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
 
 
 # get_llm_client() is called on every enrich() invocation (see enrichment.py),

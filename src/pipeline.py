@@ -6,9 +6,22 @@ Member C (Stage 2: deeplink mapping) plug into.
 
 Request/response contract
 --------------------------
-Inferred from data/siis_responses.json's readme ("siis_response is the
-payload your API must accept in POST /v1/troubleshoot") and
-data/sample_output.json's shape:
+The request shape is confirmed directly against data/siis_responses.json's
+own readme ("siis_response is the payload your API must accept in
+POST /v1/troubleshoot") and its actual per-record shape
+({"title": ..., "content": ...}) — the theme brief's own request example
+shows a bare "<optional raw text context>" string, but the real provided
+data is an object, and that's what this accepts.
+
+The response shape matches the official theme brief's §5 API contract and
+Appendix B worked example exactly (not just data/sample_output.json's
+smaller shape, which predates the full brief): "query_variations" is a
+TOP-LEVEL key (Stage 0's paraphrases), not buried inside "enrichment", and
+"cache_hit"/"latency_ms"/"model"/"cost_usd" are nested under a "meta"
+object, not flat top-level fields. "enrichment" (device/symptom/confidence
+signals) isn't part of the official contract at all — it's kept as an
+additive debug field since nothing in the spec forbids extra top-level
+keys, and it's genuinely useful for demoing Stage 0 in isolation.
 
     POST /v1/troubleshoot
     {
@@ -18,12 +31,29 @@ data/sample_output.json's shape:
 
     -> {
       "query": "<raw customer complaint>",
+      "query_variations": [ ... 8-10 paraphrases from Stage 0 ... ],
       "response": {"contexts": [ ... Goal objects, per schema.py ... ]},
-      "cache_hit": bool,
-      "latency_ms": float,
+      "meta": {"cache_hit": bool, "similarity": float | None,
+                "latency_ms": float, "model": str, "cost_usd": float},
       "enrichment": {"device", "symptom_category", "device_confidence",
-                     "symptom_confidence", "overall_confidence", "is_low_confidence"}
+                     "symptom_confidence", "overall_confidence", "is_low_confidence",
+                     "classification_source"}
     }
+
+§4.2.3 of the brief is explicit and non-negotiable: "If the reference data
+contains no viable solution, the engine must return an empty list
+(contexts: []) with fallback metadata (\"fallback\": \"no_match\")" — and
+the roadmap (§8, Phase 4) names a second reason, "no_siis_context", for
+when there was no siis_response to work from at all. Both are added to
+`response` (alongside "contexts") whenever Stage 1/2 come back empty,
+distinguishing "nothing to look at" from "looked, found nothing".
+
+"meta.cost_usd" is honestly reported as 0.0 always: none of the LLMClient
+implementations in llm_client.py currently capture token usage from the
+provider response, so computing a real per-provider $ figure would mean
+fabricating one — reporting 0.0 is the accurate statement of what's
+actually tracked today, not a claim that inference is free. Documented as
+a known gap in README.md rather than silently faked.
 
 Flow
 ----
@@ -68,6 +98,7 @@ from typing import Callable, Optional
 from cache import SemanticCache
 from embeddings import TfidfEmbedder
 from enrichment import EnrichmentResult, enrich
+from llm_client import get_llm_client
 from schema import ContextDeeplinkResponse
 
 # -- Member B / Member C extension points --------------------------------
@@ -114,8 +145,16 @@ class Pipeline:
     def run(self, query: str, siis_response: dict) -> dict:
         t0 = time.perf_counter()
 
+        # Resolved once (not inside enrich()) so meta.model can report the
+        # same client actually used for this request without a second,
+        # redundant resolution — get_llm_client() is cached by (provider,
+        # model) so this costs nothing extra either way, but resolving once
+        # here keeps "which client answered" and "what enrich() used" the
+        # same object by construction, not by coincidence.
+        client = self.llm_client or get_llm_client()
+
         # Stage 0
-        enrichment = enrich(query, llm_client=self.llm_client)
+        enrichment = enrich(query, llm_client=client)
         enrichment_info = {
             "device": enrichment.device,
             "symptom_category": enrichment.symptom_category,
@@ -137,10 +176,15 @@ class Pipeline:
         if cache_hit is not None:
             return {
                 "query": query,
+                "query_variations": enrichment.query_variations,
                 "response": cache_hit.response,
-                "cache_hit": True,
-                "similarity": cache_hit.similarity,
-                "latency_ms": (time.perf_counter() - t0) * 1000,
+                "meta": {
+                    "cache_hit": True,
+                    "similarity": cache_hit.similarity,
+                    "latency_ms": (time.perf_counter() - t0) * 1000,
+                    "model": client.model_name,
+                    "cost_usd": 0.0,
+                },
                 "enrichment": enrichment_info,
             }
 
@@ -148,6 +192,16 @@ class Pipeline:
         structured = self.stage1_fn(siis_response, enrichment)
         final = self.stage2_fn(structured, enrichment)
         response_dict = final.model_dump()
+
+        # §4.2.3 (non-negotiable): an empty result must carry fallback
+        # metadata, not just a bare empty list — "no_siis_context" when
+        # there was nothing to extract from at all, "no_match" when Stage
+        # 1/2 ran against real reference text but found no viable solution
+        # (§8 Phase 4 names both reasons explicitly). Baked into
+        # response_dict before caching so a later cache HIT on this same
+        # (rare — see the confidence gate below) entry still carries it.
+        if not response_dict.get("contexts"):
+            response_dict["fallback"] = "no_match" if siis_response else "no_siis_context"
 
         # Stage 3 (write path) — same confidence gate as the read path,
         # otherwise this is exactly what would poison the cache with a
@@ -160,9 +214,14 @@ class Pipeline:
 
         return {
             "query": query,
+            "query_variations": enrichment.query_variations,
             "response": response_dict,
-            "cache_hit": False,
-            "similarity": None,
-            "latency_ms": (time.perf_counter() - t0) * 1000,
+            "meta": {
+                "cache_hit": False,
+                "similarity": None,
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+                "model": client.model_name,
+                "cost_usd": 0.0,
+            },
             "enrichment": enrichment_info,
         }

@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 120 tests, enrichment + cache + pipeline + no-hallucination
+tests/             pytest suite: 125 tests, enrichment + cache + pipeline + no-hallucination
 ```
 
 ## Setup
@@ -149,12 +149,11 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    pair) and locked in by
    `test_llm_path_preserves_typo_and_keyword_registers_even_when_llm_contributes_nothing`,
    which uses a fake LLM client that returns zero usable candidates.
-
 4. **LLM JSON responses wrapped in a markdown code fence.** Found live
    against the real Gemini API, not a hypothetical: despite the fallback
    classifier's system prompt saying "Respond with strict JSON and nothing
    else," Gemini's raw response came back as the literal string
-   `` '```json\n{"category": "keyboard_typing_problem"}\n```' `` -- the
+   `` '```json\n{"category": "keyboard_typing_problem"}\n```' `` — the
    right answer, wrapped in the wrong thing. `json.loads()` rejects that
    outright (it starts with a backtick, not `{`), and the bare
    `except Exception: pass` around it silently swallowed the failure, so a
@@ -167,10 +166,9 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    in by `test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_code_fence`
    and `test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_code_fence`,
    using the exact wrapped string observed from the real API.
-
 5. **A common, perfectly understandable phrasing had no deterministic route
    at all.** The live-tested complaint "my phone does something weird when I
-   type, letters come out wrong" never says "keyboard" -- a person reads it
+   type, letters come out wrong" never says "keyboard" — a person reads it
    instantly, but `keyboard_typing_problem`'s only component word was the
    literal string `"keyboard"`, so this fell all the way through to the
    guarded LLM fallback every time: correct, but slower and dependent on a
@@ -180,12 +178,53 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    word "type", so this can't start firing on an unrelated complaint that
    merely mentions a device "type") plus matching problem phrases
    (`"letters come out"`, `"come out wrong"`, `"come out jumbled"`,
-   `"jumbled"`, `"gibberish"`) -- this phrasing now classifies instantly with
+   `"jumbled"`, `"gibberish"`) — this phrasing now classifies instantly with
    zero network dependency. Locked in by
    `test_common_typing_phrasing_is_now_caught_deterministically`; the LLM
    fallback tests that used to rely on this exact wording were moved to a
    different unseen phrasing so they still demonstrate the fallback path
    rather than the (now direct) keyword match.
+6. **A confidently keyword-matched query still paid a real LLM network
+   round-trip.** Live-tested, not hypothetical: `generate_variations()`
+   asked the configured LLM for extra paraphrases on *every* request when a
+   real provider was set, regardless of how confident Stage 0 already was —
+   a `/v1/troubleshoot` call for a clean, instantly keyword-matched battery
+   complaint measured **935ms**, over 3x the brief's own ≤300ms fast-path
+   budget (§6), entirely because of this one avoidable call happening
+   *before* the cache was even checked. Fixed by skipping the LLM
+   paraphrase call specifically when `classification_source ==
+   "keyword_match"` (already-confident results have full deterministic
+   template coverage; `llm_fallback`/`unclassified` results still get it,
+   since they're already paying an LLM cost for classification or have no
+   keyword signal to fall back on). Re-measured after the fix: the same
+   query dropped to ~2ms. Locked in by
+   `test_confident_keyword_match_skips_the_llm_paraphrase_call`.
+7. **The API's response shape didn't match the official theme brief.**
+   Checked line-by-line against the actual brief (`Theme 2_Troubleshooting_
+   Smart Guided Troubleshooting Engine.pdf`, §5 and Appendix B) rather than
+   assuming `data/sample_output.json` was the whole contract, and found
+   three concrete gaps: (a) `GET /healthz` — the brief names `/health`
+   exactly (§5); kept both, `/health` first. (b) `cache_hit`/`latency_ms`
+   were flat top-level response fields; the brief's worked example
+   (Appendix B) nests them under a `"meta"` object alongside `"model"` and
+   `"cost_usd"`, neither of which existed at all — added `LLMClient.
+   model_name` (defaults to `"mock"`) so `meta.model` reports what actually
+   answered, and `cost_usd` is honestly reported as `0.0` (no provider
+   token-usage tracking exists yet to compute a real figure — see Known
+   remaining limitations). (c) §4.2.3 is explicit and "non-negotiable": an
+   empty-contexts result **must** carry `"fallback": "no_match"`; the
+   roadmap (§8) names a second reason, `"no_siis_context"`, for when there
+   was no `siis_response` to work from at all. Neither existed — `pipeline.
+   run()` now adds the correct one whenever `contexts` comes back empty.
+   Also confirmed (not a bug): the brief's request example shows a bare
+   `"<optional raw text context>"` string for `siis_response`, but
+   `data/siis_responses.json`'s actual records are `{"title", "content"}`
+   objects — the existing `SiisResponse` Pydantic model already matches the
+   real data, not the brief's simplified prose example. Locked in by
+   `test_response_shape_matches_the_official_theme_brief_contract`,
+   `test_empty_result_carries_no_match_fallback_when_siis_response_given`,
+   `test_empty_result_carries_no_siis_context_fallback_when_nothing_given`,
+   and `test_fallback_metadata_is_absent_when_contexts_are_non_empty`.
 
 **Known remaining limitations**:
 
@@ -300,28 +339,48 @@ silently wrong.
 
 ```
 POST /v1/troubleshoot   {"query": "...", "siis_response": {"title": "...", "content": "..."}}
-                         -> {"query", "response": {"contexts":[...]}, "cache_hit", "similarity",
-                             "latency_ms", "enrichment": {"device", "symptom_category",
+                         -> {"query", "query_variations": [...8-10 paraphrases...],
+                             "response": {"contexts":[...], "fallback"?: "no_match"|"no_siis_context"},
+                             "meta": {"cache_hit", "similarity", "latency_ms", "model", "cost_usd"},
+                             "enrichment": {"device", "symptom_category",
                              "device_confidence", "symptom_confidence", "overall_confidence",
                              "is_low_confidence", "classification_source"}}
 POST /v1/enrich          {"query": "..."}  -> Stage 0 output only, for standalone testing
 GET  /v1/cache/stats     -> {"entries", "similarity_threshold"}
+GET  /health             -> {"status": "ok"}  (the theme brief's §5 exact path)
+GET  /healthz            -> {"status": "ok"}  (alias, common infra convention, not in the brief)
 ```
 
-Request/response shape follows `data/siis_responses.json`'s own readme
-note ("`siis_response` is the payload your API must accept in
-`POST /v1/troubleshoot`") plus the shape of `data/sample_output.json`.
+The `/v1/troubleshoot` request shape is confirmed against `data/siis_responses.json`'s
+own readme note ("`siis_response` is the payload your API must accept in
+`POST /v1/troubleshoot`") and its actual per-record `{"title", "content"}`
+shape — the official theme brief's own request example shows a bare
+`"<optional raw text context>"` string, but the real provided data is an
+object, and that's what's implemented. The response shape matches the
+brief's §5 contract and Appendix B worked example exactly: `query_variations`
+is top-level (not nested in `enrichment`), and `cache_hit`/`latency_ms`/
+`model`/`cost_usd` are nested under `meta` (not flat top-level fields, which
+is what an earlier version of this API did before the brief was checked
+line-by-line — see bug #7 below). `enrichment` itself isn't part of the
+official contract; it's kept as an additive debug field since the brief
+doesn't forbid extra top-level keys.
 
 ## Known gaps / honest limitations
 
-- No LLM key was configured when this was built, so Stage 0's variation
-  generation runs entirely on the deterministic template path in
-  practice. Set `LLM_PROVIDER`/the matching API key env var any time —
-  no code changes needed.
+- `meta.cost_usd` in the `/v1/troubleshoot` response is always `0.0` —
+  none of the `LLMClient` implementations in `llm_client.py` currently
+  capture token usage from the provider's own response, so a real
+  per-provider dollar figure isn't tracked yet. Reporting `0.0` is the
+  honest statement of what's actually measured today, not a claim that
+  inference is free; wiring up real cost tracking means reading each
+  provider's usage/token-count fields (they differ per SDK) and applying
+  that provider's published per-token rate.
 - The symptom taxonomy in `enrichment.py` covers the patterns seen in
-  the 20 sample complaints; an unseen symptom category falls back to a
-  generic "screen issue" label rather than guessing a specific one (by
-  design — no hallucinated symptom).
+  the 20 sample complaints plus the categories found by scanning
+  `deeplinks.json`; a genuinely novel symptom category still correctly
+  falls back to `unclassified_issue` (or the guarded LLM fallback, if a
+  provider is configured) rather than guessing a specific one it was
+  never told about (by design — no hallucinated symptom).
 - The cache's brute-force-at-scale numbers above assume a single
   process/thread; it isn't thread-lock-protected for concurrent writes.
   Fine for the hackathon's demo/eval harness; flag if the real deployment

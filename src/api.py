@@ -10,6 +10,9 @@ Endpoints:
     POST /v1/troubleshoot   the team's real deliverable endpoint
     POST /v1/enrich         Stage 0 only — inspect normalization/variations
     GET  /v1/cache/stats    cache size, for demo/debugging
+    GET  /health            the theme brief's §5 exact spec'd path
+    GET  /healthz           kept as an alias (a common infra convention);
+                            not in the brief, harmless to also expose
 """
 from __future__ import annotations
 
@@ -58,6 +61,19 @@ def cache_stats() -> dict:
     return {"entries": len(pipeline.cache), "similarity_threshold": pipeline.cache.similarity_threshold}
 
 
+@app.get("/health")
+def health() -> dict:
+    """Exact path the theme brief's §5 API contract names. `pipeline` (cache
+    + embedder) is constructed at module import time above, so by the time
+    FastAPI is serving requests at all, initialization is already done —
+    a static "ok" here is an honest statement of that, not a shortcut.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/healthz")
 def healthz() -> dict:
+    """Alias for /health — a common infra convention, not in the brief,
+    kept so nothing that already depends on this path breaks.
+    """
     return {"status": "ok"}

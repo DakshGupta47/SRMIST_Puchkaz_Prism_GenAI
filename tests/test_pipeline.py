@@ -35,18 +35,50 @@ def _fresh_pipeline() -> Pipeline:
     return Pipeline(cache=cache, stage1_fn=_fake_confident_stage1, stage2_fn=_identity_stage2)
 
 
+def _fresh_pipeline_with_default_stages() -> Pipeline:
+    """A pipeline using the real not-wired-yet Stage 1/2 placeholders
+    (pipeline.py's own _stage1_not_wired / _stage2_not_wired), i.e. what the
+    API actually runs before Member B / Member C's code lands — genuinely
+    empty contexts, not a test double standing in for "no viable solution".
+    """
+    cache = SemanticCache(TfidfEmbedder.load())
+    return Pipeline(cache=cache)
+
+
 def test_confident_query_is_cached_and_hit_on_repeat():
     pipeline = _fresh_pipeline()
     q = "My Galaxy S22 battery drains extremely fast, dead by noon even with light use."
 
     first = pipeline.run(q, {"title": "t", "content": "c"})
-    assert first["cache_hit"] is False
+    assert first["meta"]["cache_hit"] is False
     assert first["enrichment"]["is_low_confidence"] is False
     assert first["enrichment"]["classification_source"] == "keyword_match"
     assert len(pipeline.cache) == 1
 
     second = pipeline.run("galaxy s22 battery dies so fast, gone by lunch", {"title": "t", "content": "c"})
-    assert second["cache_hit"] is True
+    assert second["meta"]["cache_hit"] is True
+
+
+def test_response_shape_matches_the_official_theme_brief_contract():
+    """§5/Appendix B of the theme brief: query_variations is a TOP-LEVEL
+    key (not nested inside enrichment), and cache_hit/latency_ms/model/
+    cost_usd live under a "meta" object, not as flat top-level fields.
+    Checking the exact envelope shape directly so a future refactor can't
+    silently drift back to the old flat shape without a test noticing.
+    """
+    pipeline = _fresh_pipeline()
+    result = pipeline.run(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+        {"title": "t", "content": "c"},
+    )
+    assert isinstance(result["query_variations"], list)
+    from enrichment import MIN_VARIATIONS
+    assert len(result["query_variations"]) >= MIN_VARIATIONS
+    assert set(result["meta"].keys()) == {"cache_hit", "similarity", "latency_ms", "model", "cost_usd"}
+    assert result["meta"]["model"] == "mock"  # conftest strips real LLM_PROVIDER for the whole suite
+    assert result["meta"]["cost_usd"] == 0.0
+    assert "cache_hit" not in result  # must NOT also be flat at the top level
+    assert "latency_ms" not in result
 
 
 def test_low_confidence_query_is_never_cached():
@@ -54,9 +86,54 @@ def test_low_confidence_query_is_never_cached():
     ambiguous = "asdkjfhaskdjfh qwerty"
 
     result = pipeline.run(ambiguous, {"title": "t", "content": "c"})
-    assert result["cache_hit"] is False
+    assert result["meta"]["cache_hit"] is False
     assert result["enrichment"]["is_low_confidence"] is True
     assert len(pipeline.cache) == 0  # nothing written
+
+
+def test_empty_result_carries_no_match_fallback_when_siis_response_given():
+    """§4.2.3, non-negotiable: 'If the reference data contains no viable
+    solution, the engine must return an empty list (contexts: []) with
+    fallback metadata (\"fallback\": \"no_match\")'. Using the real
+    not-wired-yet Stage 1 placeholder (returns empty contexts) with a
+    genuine siis_response present, so this is "looked, found nothing".
+    """
+    pipeline = _fresh_pipeline_with_default_stages()
+    result = pipeline.run(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+        {"title": "t", "content": "c"},
+    )
+    assert result["response"]["contexts"] == []
+    assert result["response"]["fallback"] == "no_match"
+
+
+def test_empty_result_carries_no_siis_context_fallback_when_nothing_given():
+    """§8 Phase 4 names a second, distinct fallback reason: no siis_response
+    at all means there was nothing to extract from in the first place —
+    "no_siis_context", not "no_match" (which implies a real attempt was made
+    against real reference text and came back empty).
+    """
+    pipeline = _fresh_pipeline_with_default_stages()
+    result = pipeline.run(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+        {},
+    )
+    assert result["response"]["contexts"] == []
+    assert result["response"]["fallback"] == "no_siis_context"
+
+
+def test_fallback_metadata_is_absent_when_contexts_are_non_empty():
+    """The fallback key must only appear on a genuinely empty result — never
+    tacked onto a real, populated response, which would misrepresent a
+    successful answer as a fallback case.
+    """
+    pipeline = _fresh_pipeline()
+    result = pipeline.run(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+        {"title": "t", "content": "c"},
+    )
+    assert result["response"]["contexts"]  # non-empty (the fake stage1 always returns one Goal)
+    assert "fallback" not in result["response"]
 
 
 def test_llm_fallback_classified_query_still_never_enters_the_cache():
@@ -98,7 +175,7 @@ def test_llm_fallback_classified_query_still_never_enters_the_cache():
     result = pipeline.run(query, {"title": "t", "content": "c"})
     assert result["enrichment"]["is_low_confidence"] is True
     assert result["response"]["contexts"][0]["title"] == enrichment.symptom_label  # Stage 1 got the real category
-    assert result["cache_hit"] is False
+    assert result["meta"]["cache_hit"] is False
     assert len(pipeline.cache) == 0  # the whole point: llm_fallback never gets cached
 
 
@@ -125,5 +202,5 @@ def test_two_unrelated_low_confidence_queries_never_cross_contaminate():
 
     assert r1["response"]["contexts"][0]["goal"] == "answer-1"
     assert r2["response"]["contexts"][0]["goal"] == "answer-2"  # NOT answer-1 — no cross-contamination
-    assert r2["cache_hit"] is False
+    assert r2["meta"]["cache_hit"] is False
     assert len(cache) == 0

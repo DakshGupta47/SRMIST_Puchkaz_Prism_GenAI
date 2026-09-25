@@ -207,7 +207,7 @@ def test_llm_fallback_classifies_a_complaint_the_keyword_matcher_could_not():
 
     # deliberately phrased so the keyword matcher finds nothing: no "keyboard"
     # component word, and no "when I type"/"while typing"-style phrase either
-    # (those two are now in the taxonomy directly -- see
+    # (those two are now in the taxonomy directly — see
     # test_common_typing_phrasing_is_now_caught_deterministically below).
     result = normalize_query(
         "My Galaxy S23 messages come out full of random symbols instead of the letters I actually pressed.",
@@ -278,9 +278,11 @@ def test_llm_variation_path_does_not_crash_on_symptom_field_rename():
     """Regression: an earlier refactor renamed Symptom.keywords to
     component_terms/problem_terms but left one reference to the old
     attribute in the LLM-paraphrase validation path. Tests didn't catch it
-    because that path only executes with a real (non-mock) LLM client
-    configured — exercising it directly here so it can't silently regress
-    again.
+    because that path only executes with a real (non-mock) LLM client AND a
+    result that isn't already a confident keyword_match (see
+    test_confident_keyword_match_skips_the_llm_paraphrase_call for why that
+    gate exists) — using a complaint the keyword matcher can't classify, so
+    the LLM-paraphrase validation branch under test actually runs.
     """
     from enrichment import generate_variations, normalize_query
     from llm_client import LLMClient
@@ -294,8 +296,9 @@ def test_llm_variation_path_does_not_crash_on_symptom_field_rename():
             ])
 
     result = normalize_query(
-        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use."
+        "My phone messages come out full of random symbols instead of the letters I actually pressed."
     )
+    assert result.classification_source != "keyword_match"  # sanity: LLM branch will actually run
     variations = generate_variations(result, llm_client=FakeLLM())
     assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
 
@@ -366,7 +369,7 @@ def test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_
     """Real bug found live against the actual Gemini API (not a hypothetical):
     despite the system prompt saying "Respond with strict JSON and nothing
     else", Gemini's raw response came back as the literal string
-    '```json\n{"category": "keyboard_typing_problem"}\n```' -- correct
+    '```json\\n{"category": "keyboard_typing_problem"}\\n```' — correct
     answer, wrong wrapping. json.loads() rejects that outright (it starts
     with a backtick, not '{'), which _llm_classify_symptom's bare
     `except Exception: pass` silently swallowed, so a working LLM call that
@@ -379,9 +382,7 @@ def test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_
 
     class MarkdownFencedLLM(LLMClient):
         def complete(self, system_prompt, user_prompt):
-            return '''```json
-{"category": "keyboard_typing_problem"}
-```'''
+            return '```json\n{"category": "keyboard_typing_problem"}\n```'
 
     # phrased to still miss the keyword taxonomy (no "keyboard" or "when I
     # type"-style phrase) so this exercises the LLM path, not the now-direct
@@ -421,21 +422,49 @@ def test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_cod
 
     class MarkdownFencedLLM(LLMClient):
         def complete(self, system_prompt, user_prompt):
-            return '''```json
-["battery keeps dying so fast", "battery life is terrible on this thing"]
-```'''
+            return '```json\n["my samsung device fails to register keystrokes right", "samsung keyboard is terrible now"]\n```'
 
+    # a keyword_match result would skip the LLM call entirely (see
+    # test_confident_keyword_match_skips_the_llm_paraphrase_call) so this
+    # needs a complaint that stays unclassified at the keyword layer for the
+    # LLM-paraphrase branch under test to actually run.
     result = normalize_query(
-        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use."
+        "My phone messages come out full of random symbols instead of the letters I actually pressed."
     )
     variations = generate_variations(result, llm_client=MarkdownFencedLLM())
     assert any("terrible" in v.lower() for v in variations)
     assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
 
 
+def test_confident_keyword_match_skips_the_llm_paraphrase_call():
+    """Real latency finding from live testing: with a real (non-mock)
+    LLM_PROVIDER configured, generate_variations() used to call out to the
+    LLM for extra paraphrases on every request, even one the keyword matcher
+    already classified with full confidence — adding a real network
+    round-trip (~1s, observed live against Gemini) before the cache is even
+    checked, for a query that already had 8-10 solid template variations.
+    Since a keyword-matched result is already confident, the LLM call buys
+    little and costs real latency; skip it in that case only — llm_fallback
+    and unclassified results (which are already paying an LLM cost for
+    classification, or could genuinely use more paraphrase diversity) still
+    get it.
+    """
+    from enrichment import generate_variations, normalize_query
+    from llm_client import LLMClient
+
+    class ExplodingLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            raise AssertionError("LLM should not be called for an already-confident keyword_match result")
+
+    result = normalize_query("My Galaxy S22 battery drains extremely fast, dead by noon even with light use.")
+    assert result.classification_source == "keyword_match"  # sanity
+    variations = generate_variations(result, llm_client=ExplodingLLM())  # must not raise
+    assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
+
+
 def test_strip_code_fence_is_a_no_op_on_already_plain_json():
     """The fence-stripping helper must never corrupt a normal, unwrapped JSON
-    response -- most providers (and Gemini itself, sometimes) return plain
+    response — most providers (and Gemini itself, sometimes) return plain
     JSON with no fence at all.
     """
     from enrichment import _strip_code_fence
