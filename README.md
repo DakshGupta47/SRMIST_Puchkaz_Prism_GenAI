@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 71 tests, enrichment + cache + latency + no-hallucination
+tests/             pytest suite: 105 tests, enrichment + cache + pipeline + no-hallucination
 ```
 
 ## Setup
@@ -80,7 +80,7 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
   lines, a false-alarm/no-issue message) — see
   `tests/test_enrichment.py` and the "Two real bugs" section.
 
-### Two real bugs this surfaced (found by testing beyond the 20 given samples)
+### Real bugs this surfaced (found by testing beyond the 20 given samples)
 
 1. **Hallucinated symptom on non-screen complaints.** The taxonomy
    originally only covered screen symptoms, so *any* non-screen complaint
@@ -106,14 +106,47 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    part-specific category (camera, battery, Wi-Fi, ...) is only eligible
    at all once its component word is seen, which also structurally
    prevents the crack/crackly-style collision.
+3. **`generate_variations()`'s LLM-path register loss.** When a real (not
+   mock) `LLM_PROVIDER` is configured, the template list was sliced as
+   `base[:6]` to make room for LLM-generated paraphrases — the comment
+   next to it claimed this "keeps template's typo slots," but `base[:6]`
+   actually keeps the *first* 6 (formal/casual/keyword) and drops the
+   frustrated pair *and* both typo variants. If the LLM call fails, times
+   out, or every candidate gets filtered by the relevance check (a real,
+   not rare, failure mode — see `llm_client.py`'s "the LLM proposes, the
+   code disposes" validation), the result silently loses the typo register
+   the module docstring promises is always present. Not caught by the
+   existing suite because it only triggers with a non-mock LLM client
+   configured, which nothing in `tests/` had exercised end-to-end. Fixed
+   to `base[:6] + base[8:10] + valid_extra` (swap out only the frustrated
+   pair) and locked in by
+   `test_llm_path_preserves_typo_and_keyword_registers_even_when_llm_contributes_nothing`,
+   which uses a fake LLM client that returns zero usable candidates.
 
-**Known remaining limitation**: heavy typo corruption (`"skreen"`,
-`"blenk"`, `"trun on"` for screen/blank/turn on) can still defeat
-substring/stem matching and fall back to `unclassified_issue` — see
-`test_heavy_typos_are_a_known_limitation_not_a_crash`. A bare one-word
-complaint like `"Battery"` also stays `unclassified_issue` on purpose:
-there's no problem word to classify, and guessing a specific failure mode
-from the noun alone would itself be a hallucination.
+**Known remaining limitations**:
+
+- Heavy typo corruption (`"skreen"`, `"blenk"`, `"trun on"` for
+  screen/blank/turn on) can still defeat substring/stem matching and fall
+  back to `unclassified_issue` — see
+  `test_heavy_typos_are_a_known_limitation_not_a_crash`. A bare one-word
+  complaint like `"Battery"` also stays `unclassified_issue` on purpose:
+  there's no problem word to classify, and guessing a specific failure mode
+  from the noun alone would itself be a hallucination.
+- A handful of the taxonomy's problem-term words are generic enough
+  (`"fast"` for battery, `"slow"` for charging) that a single message
+  mentioning two unrelated things — "battery's fine, but wifi drops out
+  fast" — could in principle satisfy both a component word and a problem
+  word for the wrong category, since matching is bag-of-words, not
+  proximity- or clause-aware. Narrowing these words to fix that risks the
+  opposite failure: "battery dies really fast" or "charges really slowly"
+  (adverb in the middle) would stop matching at all, because matching is
+  substring-based, not phrase-window-based — trading a rare false
+  classification for a much more common missed one. Given the hackathon's
+  complaints are single-issue per message (all 20 samples and all 38 of
+  the unseen scenarios are), this is disclosed rather than "fixed" one way
+  or the other; a real fix needs clause-aware or dependency-parse matching,
+  which is beyond what a keyword taxonomy can safely do without an LLM in
+  the loop.
 
 ### Confidence signal — "don't answer for the sake of answering"
 

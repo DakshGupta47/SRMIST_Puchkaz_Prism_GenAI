@@ -79,6 +79,11 @@ def extract_device(raw: str) -> str:
     if not match:
         return UNKNOWN_DEVICE_LABEL
     device = re.sub(r"\s+", " ", match.group(0)).strip()
+    if re.match(r"(?i)^sm-", device):
+        # SM-A536E-style model codes are conventionally all-caps; a keyword-style
+        # complaint typed in lowercase ("my sm-a536e...") shouldn't come out as
+        # "Sm-a536e" from the generic title-casing below.
+        return device.upper()
     # Normalize casing: "galaxy s22" -> "Galaxy S22"
     return " ".join(w[0].upper() + w[1:] if w and w[0].isalpha() else w for w in device.split())
 
@@ -137,8 +142,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "touch_unresponsive",
         "Touchscreen unresponsive / can't interact",
         ["screen", "touch", "touchscreen", "display"],
-        ["unresponsive", "doesn't respond", "does not respond", "won't respond", "wont respond",
-         "not responding", "can't interact", "cant interact", "unable to interact"],
+        ["unresponsive", "doesn't respond", "doesnt respond", "does not respond", "won't respond",
+         "wont respond", "not responding", "can't interact", "cant interact", "unable to interact"],
         "touchscreen",
         "does not respond to touch input at all",
         "won't respond no matter how I tap it",
@@ -160,8 +165,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         ["screen", "display"],
         ["completely blank", "goes blank", "blank", "black screen", "completely black",
          "totally black", "went black", "stays dark", "won't turn on", "wont turn on",
-         "no image", "doesn't display anything", "dark screen", "black", "white and no text",
-         "is dead", "screen dead", "dead screen"],
+         "no image", "doesn't display anything", "doesnt display anything", "dark screen",
+         "black", "white and no text", "is dead", "screen dead", "dead screen"],
         "screen",
         "displays no image at all and will not turn on",
         "is just totally black, nothing shows up",
@@ -191,7 +196,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "inner_screen_failure",
         "Inner/foldable screen failed, outer screen fine",
         ["inner screen", "cover screen", "fold"],
-        ["stopped working", "no image", "dead", "doesn't respond", "not responding", "stopped"],
+        ["stopped working", "no image", "dead", "doesn't respond", "doesnt respond",
+         "not responding", "stopped"],
         "inner foldable display",
         "has stopped producing an image or responding to touch, while the cover screen remains functional",
         "just died but the cover screen still works",
@@ -244,8 +250,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "battery_drain",
         "Battery drains unusually fast",
         ["battery"],
-        ["drain", "dies so fast", "dead by", "doesn't last", "runs out", "dying fast",
-         "life is bad", "fast", "drains"],
+        ["drain", "dies so fast", "dead by", "doesn't last", "doesnt last", "runs out",
+         "dying fast", "life is bad", "fast", "drains"],
         "battery",
         "drains unusually quickly even under light everyday use",
         "is dying crazy fast, barely lasts half a day",
@@ -255,7 +261,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "charging_fails_or_slow",
         "Device won't charge or charges very slowly",
         ["charg"],  # stem: matches charge/charging/charger/charges
-        ["won't", "wont", "not charging", "slowly", "slow", "barely", "stopped", "doesn't", "no matter what cable"],
+        ["won't", "wont", "not charging", "slowly", "slow", "barely", "stopped", "doesn't", "doesnt", "no matter what cable"],
         "charging",
         "is extremely slow or does not charge at all when plugged in",
         "is barely charging, if at all, no matter how long it's plugged in",
@@ -402,7 +408,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Fingerprint/face unlock not working",
         ["fingerprint", "face recognition", "face unlock", "biometric"],
         ["won't", "wont", "not working", "stopped working", "fail", "doesn't recognize",
-         "won't recognize", "wont recognize", "not recognizing", "recognize me"],
+         "doesnt recognize", "won't recognize", "wont recognize", "not recognizing", "recognize me"],
         "fingerprint/face unlock",
         "repeatedly fails to recognize and unlock the device",
         "scanner just won't recognize me anymore",
@@ -413,7 +419,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Not receiving notifications",
         ["notification"],
         ["not getting", "not receiving", "not showing", "missing", "stopped getting",
-         "no notifications", "aren't showing"],
+         "no notifications", "aren't showing", "arent showing"],
         "notifications",
         "are not being delivered for messages or app alerts",
         "just aren't showing up at all anymore",
@@ -424,7 +430,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Software update fails to install",
         ["update"],
         ["fail", "won't install", "wont install", "error", "keeps failing", "stuck",
-         "doesn't install"],
+         "doesn't install", "doesnt install"],
         "software update",
         "repeatedly fails to download or install",
         "keeps failing every single time I try",
@@ -661,7 +667,13 @@ def generate_variations(
             and (result.device.split()[0].lower() in e.lower()
                  or any(kw in e.lower() for kw in _relevance_terms))
         ]
-        base = base[:6] + valid_extra  # keep template's typo slots, swap in LLM diversity
+        # base[0:6] = formal/casual/keyword pairs, base[6:8] = frustrated pair,
+        # base[8:10] = the two typo variants. Swap out only the frustrated slots
+        # for LLM diversity — formal/casual/keyword/typo registers must survive
+        # even when the LLM contributes nothing usable (extra == [], e.g. a bad
+        # or filtered-out response), otherwise a real-LLM run silently loses the
+        # typo register the docstring promises is always present.
+        base = base[:6] + base[8:10] + valid_extra
 
     seen = set()
     deduped: List[str] = []

@@ -195,6 +195,68 @@ def test_llm_variation_path_does_not_crash_on_symptom_field_rename():
     assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
 
 
+@pytest.mark.parametrize("raw,expected_category", [
+    ("My Galaxy S23 fingerprint doesnt recognize me anymore.", "fingerprint_face_unlock_fail"),
+    ("The software update on my Galaxy S24 doesnt install no matter what I try.", "software_update_fails"),
+    ("Im not getting any WhatsApp notifications, they arent showing up at all on my Galaxy S22.", "no_notifications"),
+    ("My Galaxy S22 screen doesnt display anything anymore, just stays dark.", "screen_blank_black"),
+    ("My Galaxy S22 battery doesnt last more than a couple hours now.", "battery_drain"),
+])
+def test_apostrophe_dropped_negation_matches_same_as_apostrophe_version(raw, expected_category):
+    """Real users often type 'doesnt'/'arent' without the apostrophe, especially
+    in the casual/typo registers Stage 0 itself generates. The taxonomy already
+    handled this for won't/wont and can't/cant everywhere; doesn't/aren't had
+    gaps in a few categories where only the apostrophe'd form was listed, so a
+    perfectly common casual phrasing fell through to unclassified_issue for no
+    good reason. This isn't the "heavy typo" limitation below — it's a single,
+    universally-dropped punctuation mark on an otherwise clean sentence.
+    """
+    result = enrich(raw)
+    assert result.symptom_category == expected_category
+
+
+def test_sm_code_device_casing_is_fully_uppercase_even_from_lowercase_input():
+    """SM-xxxx model codes are conventionally all-caps. A keyword-style
+    complaint typed in lowercase ('my sm-a536e battery...') used to come out
+    as 'Sm-a536e' because the generic title-casing only ever touches the
+    first letter of each word.
+    """
+    result = enrich("my sm-a536e battery drains fast, dead by noon even with light use")
+    assert result.device == "SM-A536E"
+
+
+def test_llm_path_preserves_typo_and_keyword_registers_even_when_llm_contributes_nothing():
+    """Regression: generate_variations() used to slice the template list as
+    base[:6] when a real (non-mock) LLM client was configured, which drops
+    BOTH the frustrated-register pair AND the two typo-register variants —
+    not just frustrated, as the code's own comment claimed. If the LLM call
+    fails, times out, or every candidate gets filtered out by the relevance
+    check (extra == []), a real deployment would silently lose the typo
+    register the module docstring promises is always present. Exercising the
+    zero-usable-output case directly here, with a fake LLM client, so this
+    can't silently regress the moment someone actually sets LLM_PROVIDER.
+    """
+    from enrichment import SYMPTOM_TAXONOMY, _DEFAULT_SYMPTOM, _inject_typos, generate_variations, normalize_query
+    from llm_client import LLMClient
+    import json
+
+    class FailingLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return json.dumps([])  # a well-formed but empty response
+
+    result = normalize_query("My Galaxy S22 battery drains extremely fast, dead by noon even with light use.")
+    variations = generate_variations(result, llm_client=FailingLLM())
+
+    # Recompute the exact two typo variants the template generator would have
+    # produced, and confirm at least one survived the LLM-path slicing.
+    symptom = next((s for s in SYMPTOM_TAXONOMY if s.category == result.symptom_category), _DEFAULT_SYMPTOM)
+    expected_typo_casual = _inject_typos(f"{result.device} {symptom.subject} {symptom.casual}", seed=1)
+    expected_typo_formal = _inject_typos(f"{result.device} {symptom.subject} {symptom.formal}", seed=2)
+
+    assert expected_typo_casual in variations or expected_typo_formal in variations
+    assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
+
+
 def test_heavy_typos_are_a_known_limitation_not_a_crash():
     """Documents a real, disclosed limitation: substring/stem keyword
     matching can't recover from spelling corrupted past recognition
