@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 116 tests, enrichment + cache + pipeline + no-hallucination
+tests/             pytest suite: 119 tests, enrichment + cache + pipeline + no-hallucination
 ```
 
 ## Setup
@@ -149,6 +149,24 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    pair) and locked in by
    `test_llm_path_preserves_typo_and_keyword_registers_even_when_llm_contributes_nothing`,
    which uses a fake LLM client that returns zero usable candidates.
+
+4. **LLM JSON responses wrapped in a markdown code fence.** Found live
+   against the real Gemini API, not a hypothetical: despite the fallback
+   classifier's system prompt saying "Respond with strict JSON and nothing
+   else," Gemini's raw response came back as the literal string
+   `` '```json\n{"category": "keyboard_typing_problem"}\n```' `` -- the
+   right answer, wrapped in the wrong thing. `json.loads()` rejects that
+   outright (it starts with a backtick, not `{`), and the bare
+   `except Exception: pass` around it silently swallowed the failure, so a
+   working LLM call that answered correctly still produced
+   `classification_source: "unclassified"`. The same `json.loads(raw)` call
+   in `_llm_variations` had the identical latent vulnerability, just not yet
+   observed in the wild. Fixed with a small `_strip_code_fence()` helper
+   (strips a leading/trailing ` ```json `/` ``` ` fence, a no-op on
+   already-plain JSON) applied before both `json.loads()` calls, and locked
+   in by `test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_code_fence`
+   and `test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_code_fence`,
+   using the exact wrapped string observed from the real API.
 
 **Known remaining limitations**:
 

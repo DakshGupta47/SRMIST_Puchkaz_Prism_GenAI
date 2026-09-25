@@ -585,6 +585,25 @@ LLM_FALLBACK_CONFIDENCE = 0.4  # deliberately < 0.5: always is_low_confidence, n
 _VALID_SYMPTOM_CATEGORIES = {s.category for s in SYMPTOM_TAXONOMY} | {_DEFAULT_SYMPTOM.category}
 
 
+def _strip_code_fence(text: str) -> str:
+    """LLMs (Gemini especially) commonly wrap a JSON response in a markdown
+    code fence (```json ... ```) even when explicitly instructed to "respond
+    with strict JSON and nothing else" -- found by testing a real Gemini call,
+    not by inspection: it correctly classified a keyboard complaint but
+    returned the literal string '```json\n{"category": "keyboard_typing_problem"}\n```',
+    which json.loads() rejects outright (it starts with a backtick, not `{`
+    or `[`) and enrichment.py's bare `except Exception: pass` was silently
+    swallowing, making a correct LLM answer look like a failed one. Stripping
+    a leading/trailing fence (with an optional "json" language tag) before
+    parsing is a no-op on a response that's already plain JSON, so this is
+    always safe to apply, not just for Gemini.
+    """
+    stripped = text.strip()
+    stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()
+
+
 def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
     """Ask the LLM to pick ONE of the known category codes, or admit it
     doesn't know. The whitelist check against _VALID_SYMPTOM_CATEGORIES is
@@ -605,7 +624,7 @@ def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
     user_prompt = f"Complaint: {raw}"
     try:
         raw_resp = client.complete(system_prompt, user_prompt)
-        parsed = json.loads(raw_resp)
+        parsed = json.loads(_strip_code_fence(raw_resp))
         category = parsed.get("category") if isinstance(parsed, dict) else None
         if (
             isinstance(category, str)
@@ -778,7 +797,7 @@ def _llm_variations(result: EnrichmentResult, client: LLMClient, n: int) -> List
     )
     try:
         raw = client.complete(system_prompt, user_prompt)
-        candidates = json.loads(raw)
+        candidates = json.loads(_strip_code_fence(raw))
         if not isinstance(candidates, list):
             return []
         return [c.strip() for c in candidates if isinstance(c, str) and c.strip()]

@@ -360,6 +360,70 @@ def test_llm_path_preserves_typo_and_keyword_registers_even_when_llm_contributes
     assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
 
 
+def test_llm_fallback_classifies_correctly_when_response_is_wrapped_in_markdown_code_fence():
+    """Real bug found live against the actual Gemini API (not a hypothetical):
+    despite the system prompt saying "Respond with strict JSON and nothing
+    else", Gemini's raw response came back as the literal string
+    '```json\n{"category": "keyboard_typing_problem"}\n```' -- correct
+    answer, wrong wrapping. json.loads() rejects that outright (it starts
+    with a backtick, not '{'), which _llm_classify_symptom's bare
+    `except Exception: pass` silently swallowed, so a working LLM call that
+    answered correctly still produced classification_source="unclassified".
+    Reproducing the exact wrapping here (not just "malformed json") so this
+    specific, real failure mode can't silently regress.
+    """
+    from enrichment import LLM_FALLBACK_CONFIDENCE, normalize_query
+    from llm_client import LLMClient
+
+    class MarkdownFencedLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return '''```json
+{"category": "keyboard_typing_problem"}
+```'''
+
+    result = normalize_query(
+        "My phone does something weird when I type, letters come out wrong.",
+        llm_client=MarkdownFencedLLM(),
+    )
+    assert result.symptom_category == "keyboard_typing_problem"
+    assert result.classification_source == "llm_fallback"
+    assert result.symptom_confidence == LLM_FALLBACK_CONFIDENCE
+
+
+def test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_code_fence():
+    """Same real bug as the classifier test above, but in _llm_variations:
+    json.loads(raw) on a markdown-fenced array would raise and the function
+    would silently return [] (indistinguishable from "LLM contributed
+    nothing"), even though the LLM actually gave usable paraphrases.
+    """
+    from enrichment import generate_variations, normalize_query
+    from llm_client import LLMClient
+
+    class MarkdownFencedLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return '''```json
+["battery keeps dying so fast", "battery life is terrible on this thing"]
+```'''
+
+    result = normalize_query(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use."
+    )
+    variations = generate_variations(result, llm_client=MarkdownFencedLLM())
+    assert any("terrible" in v.lower() for v in variations)
+    assert MIN_VARIATIONS <= len(variations) <= MAX_VARIATIONS
+
+
+def test_strip_code_fence_is_a_no_op_on_already_plain_json():
+    """The fence-stripping helper must never corrupt a normal, unwrapped JSON
+    response -- most providers (and Gemini itself, sometimes) return plain
+    JSON with no fence at all.
+    """
+    from enrichment import _strip_code_fence
+
+    plain = '{"category": "battery_drain"}'
+    assert _strip_code_fence(plain) == plain
+
+
 def test_heavy_typos_are_a_known_limitation_not_a_crash():
     """Documents a real, disclosed limitation: substring/stem keyword
     matching can't recover from spelling corrupted past recognition
