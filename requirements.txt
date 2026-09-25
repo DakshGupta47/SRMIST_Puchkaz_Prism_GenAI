@@ -1,0 +1,12 @@
+numpy
+scipy
+scikit-learn
+pydantic
+fastapi
+uvicorn
+pytest
+
+# Optional, only needed if you set LLM_PROVIDER to one of these in Stage 0:
+# google-generativeai   # LLM_PROVIDER=gemini
+# openai                # LLM_PROVIDER=openai
+# anthropic             # LLM_PROVIDER=anthropic
