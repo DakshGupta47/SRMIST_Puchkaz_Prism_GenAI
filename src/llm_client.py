@@ -59,7 +59,7 @@ class GeminiLLMClient(LLMClient):
 
         api_key = os.environ["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(model or os.environ.get("LLM_MODEL", "gemini-2.0-flash"))
+        self._model = genai.GenerativeModel(model or os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite"))
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._model.generate_content([system_prompt, user_prompt])
