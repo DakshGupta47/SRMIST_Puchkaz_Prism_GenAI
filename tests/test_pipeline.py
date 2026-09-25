@@ -42,6 +42,7 @@ def test_confident_query_is_cached_and_hit_on_repeat():
     first = pipeline.run(q, {"title": "t", "content": "c"})
     assert first["cache_hit"] is False
     assert first["enrichment"]["is_low_confidence"] is False
+    assert first["enrichment"]["classification_source"] == "keyword_match"
     assert len(pipeline.cache) == 1
 
     second = pipeline.run("galaxy s22 battery dies so fast, gone by lunch", {"title": "t", "content": "c"})
@@ -56,6 +57,46 @@ def test_low_confidence_query_is_never_cached():
     assert result["cache_hit"] is False
     assert result["enrichment"]["is_low_confidence"] is True
     assert len(pipeline.cache) == 0  # nothing written
+
+
+def test_llm_fallback_classified_query_still_never_enters_the_cache():
+    """The guarded LLM fallback in enrichment.py (see
+    test_llm_fallback_classifies_a_complaint_the_keyword_matcher_could_not)
+    gives Stage 1/2 a real category instead of the generic unclassified text
+    — but it's deliberately scored below the confidence threshold, so it
+    must still be invisible to pipeline.py's cache gate. Proving that
+    composition end-to-end rather than trusting it by inspection: a fake LLM
+    resolves the category, Stage 1/2 run and get a real answer, but nothing
+    is cached and a repeat of the exact same query recomputes fresh rather
+    than serving a (potentially wrong, LLM-guessed) cached response.
+    """
+    import json
+    from enrichment import enrich
+    from llm_client import LLMClient
+
+    class FakeLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            if "category" in system_prompt:
+                return json.dumps({"category": "keyboard_typing_problem"})
+            return json.dumps([])  # variation-generation call: contribute nothing extra
+
+    cache = SemanticCache(TfidfEmbedder.load())
+    fake_llm = FakeLLM()
+    pipeline = Pipeline(
+        cache=cache, stage1_fn=_fake_confident_stage1, stage2_fn=_identity_stage2, llm_client=fake_llm,
+    )
+    query = "My Galaxy S23 does this weird thing when I type messages, letters come out jumbled."
+
+    # sanity check the fallback actually fires for this query before trusting the pipeline result
+    enrichment = enrich(query, llm_client=fake_llm)
+    assert enrichment.classification_source == "llm_fallback"
+    assert enrichment.symptom_category == "keyboard_typing_problem"
+
+    result = pipeline.run(query, {"title": "t", "content": "c"})
+    assert result["enrichment"]["is_low_confidence"] is True
+    assert result["response"]["contexts"][0]["title"] == enrichment.symptom_label  # Stage 1 got the real category
+    assert result["cache_hit"] is False
+    assert len(pipeline.cache) == 0  # the whole point: llm_fallback never gets cached
 
 
 def test_two_unrelated_low_confidence_queries_never_cross_contaminate():

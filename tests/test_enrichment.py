@@ -113,6 +113,26 @@ def test_broadened_taxonomy_catches_realistic_paraphrasing(raw, expected_categor
     assert result.symptom_category == expected_category
 
 
+@pytest.mark.parametrize("raw,expected_category", [
+    ("My Galaxy S23's keyboard keeps messing up when I type, letters come out wrong.", "keyboard_typing_problem"),
+    ("The power button on my Galaxy S22 feels stuck and is hard to press.", "hardware_button_unresponsive"),
+    ("My mobile data keeps cutting out on my Galaxy A54, no internet unless I'm on wifi.", "mobile_data_connectivity"),
+    ("GPS on my Galaxy S24 keeps showing me in the wrong location, way off from where I am.", "gps_location_inaccurate"),
+    ("My Galaxy S22 stopped vibrating for calls and texts, used to work fine.", "vibration_not_working"),
+    ("TalkBack just stopped reading anything on my screen out loud on my Galaxy S21.", "screen_reader_accessibility_fail"),
+])
+def test_categories_added_from_deeplinks_json_gap_analysis(raw, expected_category):
+    """These 6 categories didn't exist in the original 26 — they were found by
+    scanning data/deeplinks.json's actual message/qna_description text for
+    clusters with no matching taxonomy entry (keyboard, power/volume button,
+    mobile data, GPS, vibration, TalkBack all show real frequency there). Not
+    guessed: derived from the same catalog the deliverable has to map answers
+    against, the same way the original 26 were.
+    """
+    result = enrich(raw)
+    assert result.symptom_category == expected_category
+
+
 def test_audio_crackle_does_not_collide_with_screen_crack():
     """Regression for a literal substring collision: 'crackly' contains
     'crack', so a naive keyword-in-text check misclassified a Bluetooth
@@ -167,6 +187,89 @@ def test_known_device_with_unclassifiable_symptom_is_still_low_confidence_overal
     assert result.device_confidence == 1.0
     assert result.symptom_confidence == 0.0
     assert result.is_low_confidence is True
+
+
+def test_llm_fallback_classifies_a_complaint_the_keyword_matcher_could_not():
+    """The keyword matcher structurally cannot classify a symptom outside the
+    taxonomy or too heavily typo'd to match — it correctly stays
+    unclassified_issue. The guarded LLM fallback exists to do better *when a
+    real LLM is configured*: pick one of the known category codes so Stage
+    1/2 get a specific canonical query instead of the generic fallback text.
+    Using a fake LLM client so this doesn't depend on network access.
+    """
+    from enrichment import LLM_FALLBACK_CONFIDENCE, normalize_query
+    from llm_client import LLMClient
+    import json
+
+    class FakeLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return json.dumps({"category": "keyboard_typing_problem"})
+
+    # deliberately phrased so the keyword matcher finds nothing: no "keyboard"
+    # component word at all.
+    result = normalize_query(
+        "My Galaxy S23 does this weird thing when I type messages, letters come out jumbled.",
+        llm_client=FakeLLM(),
+    )
+    assert result.symptom_category == "keyboard_typing_problem"
+    assert result.classification_source == "llm_fallback"
+    assert result.symptom_confidence == LLM_FALLBACK_CONFIDENCE
+    assert result.is_low_confidence is True  # still conservative — never cached
+
+
+def test_llm_fallback_never_overrides_a_successful_keyword_match():
+    """The fallback must only ever run when the deterministic matcher found
+    NOTHING. Proving it with a fake LLM that would return an obviously wrong
+    category if it were ever consulted for an already-classified complaint.
+    """
+    from enrichment import normalize_query
+    from llm_client import LLMClient
+    import json
+
+    class WrongAnswerLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return json.dumps({"category": "screen_cracked"})  # would be wrong here
+
+    result = normalize_query(
+        "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+        llm_client=WrongAnswerLLM(),
+    )
+    assert result.symptom_category == "battery_drain"
+    assert result.classification_source == "keyword_match"
+
+
+def test_llm_fallback_rejects_a_category_outside_the_known_taxonomy():
+    """The real guardrail: even if the LLM ignores its instructions and
+    invents a category that was never in the list, the whitelist check
+    discards it and the safe unclassified default is kept — no hallucinated
+    new category can ever reach symptom_category.
+    """
+    from enrichment import normalize_query
+    from llm_client import LLMClient
+    import json
+
+    class HallucinatingLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return json.dumps({"category": "haunted_device_possession"})
+
+    result = normalize_query(
+        "My phone does something weird sometimes, hard to describe.",
+        llm_client=HallucinatingLLM(),
+    )
+    assert result.symptom_category == "unclassified_issue"
+    assert result.classification_source == "unclassified"
+
+
+def test_llm_fallback_malformed_response_does_not_crash():
+    from enrichment import normalize_query
+    from llm_client import LLMClient
+
+    class GarbageLLM(LLMClient):
+        def complete(self, system_prompt, user_prompt):
+            return "not even json"
+
+    result = normalize_query("My phone does something weird sometimes.", llm_client=GarbageLLM())
+    assert result.symptom_category == "unclassified_issue"
 
 
 def test_llm_variation_path_does_not_crash_on_symptom_field_rename():

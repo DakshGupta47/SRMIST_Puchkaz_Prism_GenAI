@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 105 tests, enrichment + cache + pipeline + no-hallucination
+tests/             pytest suite: 116 tests, enrichment + cache + pipeline + no-hallucination
 ```
 
 ## Setup
@@ -56,16 +56,43 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
 ## Stage 0 — enrichment.py
 
 - `normalize_query(raw)`: regex-extracts the device model and matches
-  against a symptom taxonomy of ~26 categories spanning screen (the 20
+  against a symptom taxonomy of 32 categories spanning screen (the 20
   `data/input.txt` samples), battery, charging, overheating, random
-  restarts, sluggish performance, Wi-Fi, Bluetooth, no-signal, audio
-  (no-sound / distorted-crackling), camera (crashes / blurry), storage,
-  app crashing, fingerprint/face unlock, missing notifications, and
-  software-update failures. Deterministic — it cannot invent a device or
-  symptom that isn't in the text.
+  restarts, sluggish performance, Wi-Fi, Bluetooth, no-signal, mobile data,
+  GPS/location, audio (no-sound / distorted-crackling), vibration, camera
+  (crashes / blurry), storage, app crashing, keyboard, hardware buttons,
+  fingerprint/face unlock, missing notifications, software-update
+  failures, and TalkBack/accessibility. The last 6 (mobile data, GPS,
+  vibration, keyboard, hardware buttons, TalkBack) were added by scanning
+  `data/deeplinks.json`'s own message/description text for clusters with
+  real frequency and no matching category — the same data-driven method
+  the original 26 were built with, not guessed. This primary path is
+  deterministic — it cannot invent a device or symptom that isn't in the
+  text.
 - Matching is (component word present) **and** (problem word present),
-  not one long exact phrase — see "Two real bugs" below for why that
+  not one long exact phrase — see "Real bugs" below for why that
   distinction mattered.
+- **Guarded LLM fallback classifier** (`_llm_classify_symptom`, off by
+  default): if — and only if — the deterministic matcher above finds
+  *nothing at all*, and a real `LLM_PROVIDER` is configured, one fallback
+  attempt asks the LLM to pick a category from the exact 32-item list (or
+  say it still doesn't know). Three guardrails keep this from
+  reintroducing the hallucination risk the deterministic design exists to
+  avoid: (1) it never runs when a keyword match already succeeded, so it
+  can't override real evidence; (2) its answer is checked against a
+  whitelist of the exact known category strings before use, so an LLM that
+  ignores instructions and invents a new label can't get through; (3) its
+  result is always scored at `LLM_FALLBACK_CONFIDENCE = 0.4`, below the
+  `is_low_confidence` threshold, so it's structurally incapable of
+  entering the semantic cache no matter how confidently the device was
+  identified — `pipeline.py`'s existing confidence gate keeps it out
+  automatically, no changes needed there. `EnrichmentResult` now exposes
+  `classification_source` (`"keyword_match"` / `"llm_fallback"` /
+  `"unclassified"`) so this is visible, not silent. With no `LLM_PROVIDER`
+  set (the default), this path never runs and behavior is unchanged —
+  100% deterministic, same as before. See
+  `tests/test_enrichment.py::test_llm_fallback_*` and
+  `tests/test_pipeline.py::test_llm_fallback_classified_query_still_never_enters_the_cache`.
 - `generate_variations(...)`: produces 8-10 paraphrases across
   formal/casual/keyword/frustrated/typo registers. Template-based by
   default (always valid, zero API keys required); if `LLM_PROVIDER` is
@@ -239,7 +266,7 @@ POST /v1/troubleshoot   {"query": "...", "siis_response": {"title": "...", "cont
                          -> {"query", "response": {"contexts":[...]}, "cache_hit", "similarity",
                              "latency_ms", "enrichment": {"device", "symptom_category",
                              "device_confidence", "symptom_confidence", "overall_confidence",
-                             "is_low_confidence"}}
+                             "is_low_confidence", "classification_source"}}
 POST /v1/enrich          {"query": "..."}  -> Stage 0 output only, for standalone testing
 GET  /v1/cache/stats     -> {"entries", "similarity_threshold"}
 ```

@@ -100,16 +100,22 @@ class Pipeline:
         cache: Optional[SemanticCache] = None,
         stage1_fn: Stage1Fn = _stage1_not_wired,
         stage2_fn: Stage2Fn = _stage2_not_wired,
+        llm_client=None,
     ):
         self.cache = cache or SemanticCache(TfidfEmbedder.load())
         self.stage1_fn = stage1_fn
         self.stage2_fn = stage2_fn
+        # Optional explicit injection (tests, or an app wiring a specific client).
+        # If not given, enrich() falls back to get_llm_client(), which reads
+        # LLM_PROVIDER from the environment — so the common case (just set the
+        # env var, no code changes) keeps working unchanged.
+        self.llm_client = llm_client
 
     def run(self, query: str, siis_response: dict) -> dict:
         t0 = time.perf_counter()
 
         # Stage 0
-        enrichment = enrich(query)
+        enrichment = enrich(query, llm_client=self.llm_client)
         enrichment_info = {
             "device": enrichment.device,
             "symptom_category": enrichment.symptom_category,
@@ -117,6 +123,7 @@ class Pipeline:
             "symptom_confidence": enrichment.symptom_confidence,
             "overall_confidence": enrichment.overall_confidence,
             "is_low_confidence": enrichment.is_low_confidence,
+            "classification_source": enrichment.classification_source,
         }
 
         # Stage 3 (read path) — skipped entirely when Stage 0 isn't confident;

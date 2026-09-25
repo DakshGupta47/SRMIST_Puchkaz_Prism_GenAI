@@ -159,6 +159,33 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "feels laggy, there's a delay when I tap stuff",
         "delay laggy",
     ),
+
+    # -- input / hardware buttons -- added after scanning data/deeplinks.json's actual
+    # text for clusters the original 26 categories didn't cover ("keyboard", "power
+    # button"/"volume button" phrasing show up repeatedly with no matching category).
+    Symptom(
+        "keyboard_typing_problem",
+        "On-screen keyboard not typing correctly / unresponsive",
+        ["keyboard"],
+        ["not typing", "wont type", "won't type", "stuck", "lagging", "not working",
+         "keeps freezing", "autocorrect is broken", "keeps messing up", "mistypes"],
+        "keyboard",
+        "fails to register keystrokes correctly or becomes unresponsive during use",
+        "keeps messing up when I type, keys stick or don't register",
+        "keyboard not typing stuck",
+    ),
+    Symptom(
+        "hardware_button_unresponsive",
+        "Power or volume button physically stuck/unresponsive",
+        ["power button", "volume button", "volume key", "power key"],
+        ["stuck", "not working", "doesn't work", "doesnt work", "stopped working",
+         "unresponsive", "wont press", "won't press", "hard to press"],
+        "button",
+        "has become physically stuck or unresponsive to presses",
+        "just doesn't click anymore, feels stuck",
+        "button stuck not working",
+    ),
+
     Symptom(
         "screen_blank_black",
         "Screen completely blank/black, no display output",
@@ -335,6 +362,39 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "has zero bars, can't call or text anyone",
         "no signal no network",
     ),
+    Symptom(
+        "mobile_data_connectivity",
+        "Mobile data won't connect or keeps dropping",
+        ["mobile data", "cellular data", "data connection"],
+        ["won't connect", "wont connect", "not working", "keeps dropping", "no internet",
+         "not connecting", "wont turn on", "won't turn on", "keeps cutting out"],
+        "mobile data connection",
+        "fails to connect to mobile data or repeatedly drops the connection",
+        "keeps cutting out, no internet unless I'm on Wi-Fi",
+        "mobile data not working no internet",
+    ),
+    Symptom(
+        "gps_location_inaccurate",
+        "GPS/location not working or reporting the wrong place",
+        ["gps", "location"],
+        ["not working", "inaccurate", "wrong location", "cant find", "can't find",
+         "not accurate", "off by", "not updating", "wont find me", "won't find me"],
+        "GPS/location",
+        "reports an inaccurate location or fails to acquire a signal at all",
+        "keeps showing me in the wrong spot or won't find me at all",
+        "gps location not working inaccurate",
+    ),
+    Symptom(
+        "vibration_not_working",
+        "Device no longer vibrates for calls/notifications",
+        ["vibrate", "vibration", "vibrating"],
+        ["not working", "stopped", "wont vibrate", "won't vibrate", "doesnt vibrate",
+         "doesn't vibrate", "no longer", "isn't vibrating", "isnt vibrating"],
+        "vibration",
+        "no longer vibrates for incoming calls or notifications",
+        "just stopped buzzing for calls and texts",
+        "vibration not working stopped",
+    ),
 
     # -- audio --
     Symptom(
@@ -436,6 +496,19 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "keeps failing every single time I try",
         "software update fails wont install",
     ),
+
+    # -- accessibility --
+    Symptom(
+        "screen_reader_accessibility_fail",
+        "TalkBack / accessibility screen reader not working",
+        ["talkback", "screen reader"],
+        ["not working", "stopped", "not reading", "wont read", "won't read",
+         "stopped talking", "not speaking", "stopped reading"],
+        "TalkBack",
+        "has stopped reading screen content aloud",
+        "just stopped talking, not reading anything on screen anymore",
+        "talkback not reading stopped",
+    ),
 ]
 
 _DEFAULT_SYMPTOM = Symptom(
@@ -495,6 +568,57 @@ def extract_symptom(raw: str) -> Tuple[Symptom, float]:
 
 
 # ---------------------------------------------------------------------------
+# Guarded LLM fallback classifier — ONLY for complaints the deterministic
+# matcher above found nothing for. Never runs when a keyword match already
+# succeeded, so it can never override real evidence; never returns a category
+# outside the known taxonomy, so it can never hallucinate a new one; and its
+# result is always scored below the is_low_confidence threshold (see
+# LLM_FALLBACK_CONFIDENCE), so pipeline.py's existing cache gate keeps it out
+# of the cache automatically — no changes needed there. It exists purely to
+# give Stage 1/2 a real, specific symptom_category to work with instead of
+# the generic "could not be automatically classified" text, for the genuinely
+# unseen-taxonomy scenarios the keyword matcher structurally can't reach.
+# ---------------------------------------------------------------------------
+
+LLM_FALLBACK_CONFIDENCE = 0.4  # deliberately < 0.5: always is_low_confidence, never cached
+
+_VALID_SYMPTOM_CATEGORIES = {s.category for s in SYMPTOM_TAXONOMY} | {_DEFAULT_SYMPTOM.category}
+
+
+def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
+    """Ask the LLM to pick ONE of the known category codes, or admit it
+    doesn't know. The whitelist check against _VALID_SYMPTOM_CATEGORIES is
+    the real guardrail — even if the LLM ignores the instructions and
+    returns free text, an unrecognized string, or garbage, this returns
+    None and the caller keeps the safe unclassified_issue default. Never
+    raises: any parse/network failure is treated the same as "no answer."
+    """
+    category_list = "\n".join(f"- {s.category}: {s.label}" for s in SYMPTOM_TAXONOMY)
+    system_prompt = (
+        "You classify a Samsung device support complaint into EXACTLY ONE of the "
+        "category codes listed below, or \"unclassified_issue\" if none of them "
+        "genuinely describe the complaint. Never invent a new category code that "
+        "isn't in the list. Never add a symptom, device, or detail that isn't "
+        "already in the complaint. Respond with strict JSON and nothing else: "
+        '{"category": "<one exact code from the list>"}\n\n' + category_list
+    )
+    user_prompt = f"Complaint: {raw}"
+    try:
+        raw_resp = client.complete(system_prompt, user_prompt)
+        parsed = json.loads(raw_resp)
+        category = parsed.get("category") if isinstance(parsed, dict) else None
+        if (
+            isinstance(category, str)
+            and category in _VALID_SYMPTOM_CATEGORIES
+            and category != _DEFAULT_SYMPTOM.category
+        ):
+            return category
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Canonical query + variations
 # ---------------------------------------------------------------------------
 
@@ -508,6 +632,7 @@ class EnrichmentResult:
     device_confidence: float = 0.0    # 1.0 if a specific model was recognized, 0.0 if the
                                        # generic "Samsung device" fallback was used
     symptom_confidence: float = 0.0   # 0.0 for "unclassified_issue"; see _symptom_confidence_from_hits
+    classification_source: str = "keyword_match"  # "keyword_match" | "llm_fallback" | "unclassified"
     query_variations: List[str] = field(default_factory=list)
 
     @property
@@ -538,6 +663,7 @@ class EnrichmentResult:
             "symptom_confidence": self.symptom_confidence,
             "overall_confidence": self.overall_confidence,
             "is_low_confidence": self.is_low_confidence,
+            "classification_source": self.classification_source,
             "query_variations": self.query_variations,
         }
 
@@ -550,15 +676,37 @@ def _clean_raw(raw: str) -> str:
     return text
 
 
-def normalize_query(raw_complaint: str) -> EnrichmentResult:
+def normalize_query(raw_complaint: str, llm_client: Optional[LLMClient] = None) -> EnrichmentResult:
     """Turn a raw customer complaint into a canonical technical query.
 
-    Deterministic (regex + keyword taxonomy) — no LLM call, so it cannot
-    invent a device or symptom that isn't actually present in the text.
+    Primary path is deterministic (regex + keyword taxonomy) — no LLM call,
+    so it cannot invent a device or symptom that isn't actually present in
+    the text. If (and only if) that deterministic match finds nothing at
+    all, and a real LLM client is configured, a tightly-guarded fallback
+    (_llm_classify_symptom) gets one attempt to pick a category from the
+    exact known list — never to override a keyword match that already
+    succeeded, never to introduce a category outside the taxonomy, and
+    always scored at LLM_FALLBACK_CONFIDENCE (< 0.5), so it's structurally
+    unable to enter the semantic cache regardless of how confident the
+    device extraction is (see pipeline.py's confidence gate). With no LLM
+    configured (the default), behavior is unchanged: 100% deterministic.
     """
     cleaned = _clean_raw(raw_complaint)
     device = extract_device(cleaned)
     symptom, symptom_confidence = extract_symptom(cleaned)
+    classification_source = "keyword_match" if symptom.category != _DEFAULT_SYMPTOM.category else "unclassified"
+
+    if symptom.category == _DEFAULT_SYMPTOM.category:
+        client = llm_client or get_llm_client()
+        if not isinstance(client, MockLLMClient):
+            llm_category = _llm_classify_symptom(cleaned, client)
+            if llm_category is not None:
+                matched = next((s for s in SYMPTOM_TAXONOMY if s.category == llm_category), None)
+                if matched is not None:
+                    symptom = matched
+                    symptom_confidence = LLM_FALLBACK_CONFIDENCE
+                    classification_source = "llm_fallback"
+
     device_confidence = 0.0 if device == UNKNOWN_DEVICE_LABEL else 1.0
     canonical = f"{device} {symptom.subject} {symptom.formal}."
     return EnrichmentResult(
@@ -569,6 +717,7 @@ def normalize_query(raw_complaint: str) -> EnrichmentResult:
         symptom_label=symptom.label,
         device_confidence=device_confidence,
         symptom_confidence=symptom_confidence,
+        classification_source=classification_source,
     )
 
 
@@ -690,7 +839,13 @@ def generate_variations(
 
 
 def enrich(raw_complaint: str, llm_client: Optional[LLMClient] = None) -> EnrichmentResult:
-    """Full Stage 0 entry point: normalize + generate variations."""
-    result = normalize_query(raw_complaint)
-    result.query_variations = generate_variations(result, llm_client=llm_client)
+    """Full Stage 0 entry point: normalize (+ guarded LLM classification
+    fallback) then generate variations. Resolves the LLM client once and
+    threads the same instance through both steps, rather than letting each
+    resolve it independently, so a real (non-mock) provider only gets
+    initialized a single time per call.
+    """
+    client = llm_client or get_llm_client()
+    result = normalize_query(raw_complaint, llm_client=client)
+    result.query_variations = generate_variations(result, llm_client=client)
     return result
