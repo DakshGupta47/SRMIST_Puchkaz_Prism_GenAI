@@ -16,6 +16,12 @@ Configure via environment variables:
     GOOGLE_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY as needed
     LLM_MODEL   (optional override of the default model per provider)
 
+Easiest way to set these: copy .env.example (project root) to .env and fill
+in the two lines. python-dotenv (if installed — it's in requirements.txt)
+loads .env automatically on import, below. No .env / no dotenv installed?
+Nothing breaks — get_llm_client() falls back to the mock client exactly as
+it always did. .env is gitignored so a real key never gets committed.
+
 Whichever provider is used, `enrichment.py` always programmatically
 validates the LLM's output (Stage 0's own "never trust the LLM to
 self-constrain" rule, same principle Member B applies to Stage 1) — the
@@ -27,6 +33,13 @@ import os
 import re
 from abc import ABC, abstractmethod
 from typing import List
+
+try:
+    from dotenv import load_dotenv  # optional dependency, see requirements.txt
+
+    load_dotenv()  # no-op if there's no .env file; never raises
+except ImportError:
+    pass  # python-dotenv not installed — env vars still work if set another way
 
 
 class LLMClient(ABC):
