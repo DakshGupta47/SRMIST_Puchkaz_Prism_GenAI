@@ -107,3 +107,63 @@ def test_cache_hit_latency_budget_at_scale(embedder):
     p99 = sorted(latencies)[int(0.99 * len(latencies))]
     assert p99 < LATENCY_BUDGET_MS, f"p99 lookup latency {p99:.1f}ms exceeded {LATENCY_BUDGET_MS}ms budget"
     assert max(latencies) < LATENCY_BUDGET_MS, f"max lookup latency {max(latencies):.1f}ms exceeded budget"
+
+
+def test_concurrent_put_and_get_do_not_corrupt_the_index(embedder):
+    """Regression guard for the cache's lack of thread-safety: put() does
+    several sequential mutations (_entries.append, _pending.append,
+    _row_entry/_row_device.extend, and possibly _evict_oldest rebuilding
+    _matrix) that are not atomic on their own. Without a lock, two threads
+    racing through put() (or a put() racing a get()'s _flush_pending) can
+    interleave those steps and leave _matrix, _row_entry and _entries out of
+    sync with each other -- corrupting every lookup afterwards, not just the
+    concurrent ones. Hammers the cache from multiple threads at once and
+    checks the index is still internally consistent: every entry actually
+    written is found by len(), and none of the concurrent get() calls raise
+    or crash.
+    """
+    import threading
+
+    from enrichment import SYMPTOM_TAXONOMY
+
+    cache = SemanticCache(embedder, max_entries=10_000)
+    devices = ["Galaxy S22", "Galaxy S24 Ultra", "Galaxy Z Flip 7", "Galaxy A15"]
+    n_threads = 8
+    puts_per_thread = 25
+    errors: list[BaseException] = []
+
+    def writer(thread_id: int):
+        try:
+            for i in range(puts_per_thread):
+                device = devices[(thread_id + i) % len(devices)]
+                symptom = SYMPTOM_TAXONOMY[(thread_id * puts_per_thread + i) % len(SYMPTOM_TAXONOMY)]
+                r = enrich(f"My {device} {symptom.casual}, thread {thread_id} case {i}")
+                cache.put(r.canonical_query, r.query_variations,
+                          {"contexts": [{"goal": f"t{thread_id}-{i}"}]}, device=r.device)
+        except BaseException as exc:  # noqa: BLE001 - want to see any thread's failure
+            errors.append(exc)
+
+    def reader():
+        try:
+            for i in range(50):
+                device = devices[i % len(devices)]
+                symptom = SYMPTOM_TAXONOMY[i % len(SYMPTOM_TAXONOMY)]
+                r = enrich(f"My {device} {symptom.formal}, reader case {i}")
+                cache.get(r.canonical_query, r.query_variations, device=r.device)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(t,)) for t in range(n_threads)]
+    threads += [threading.Thread(target=reader) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, f"concurrent access raised: {errors}"
+    assert len(cache) == n_threads * puts_per_thread
+    # the index must still be internally consistent, not just non-crashing:
+    # every stored entry has to be independently findable by its own query.
+    for entry in cache._entries:
+        hit = cache.get(entry.canonical_query, entry.query_variations, device=entry.device)
+        assert hit is not None, f"entry for {entry.canonical_query!r} became unfindable after concurrent writes"

@@ -47,6 +47,7 @@ not left to the embedding to sort out.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -110,6 +111,13 @@ class SemanticCache:
         self._simhash_bits = simhash_bits
         self._rng = np.random.default_rng(seed)
 
+        # Guards every read/write below. Fine for the hackathon's single-process
+        # demo/eval harness either way, but get()/put() each do several sequential
+        # mutations (_flush_pending appending to _matrix, _evict_oldest rebuilding
+        # it, entry.hits += 1) that are not atomic on their own -- a lock keeps two
+        # concurrent requests from ever observing or leaving the index half-updated.
+        self._lock = threading.Lock()
+
     # -- semantic key -----------------------------------------------------
 
     def _ensure_planes(self, dim: int) -> None:
@@ -136,20 +144,21 @@ class SemanticCache:
         texts = [canonical_query] + list(query_variations)
         vecs = self.embedder.encode_sparse(texts)  # already L2-normalized, sparse
 
-        entry_idx = len(self._entries)
-        device_key = _normalize_device(device)
-        self._entries.append(CacheEntry(
-            canonical_query=canonical_query,
-            query_variations=list(query_variations),
-            response=response,
-            device=device_key,
-        ))
-        self._pending.append(vecs)
-        self._row_entry.extend([entry_idx] * vecs.shape[0])
-        self._row_device.extend([device_key] * vecs.shape[0])
+        with self._lock:
+            entry_idx = len(self._entries)
+            device_key = _normalize_device(device)
+            self._entries.append(CacheEntry(
+                canonical_query=canonical_query,
+                query_variations=list(query_variations),
+                response=response,
+                device=device_key,
+            ))
+            self._pending.append(vecs)
+            self._row_entry.extend([entry_idx] * vecs.shape[0])
+            self._row_device.extend([device_key] * vecs.shape[0])
 
-        if len(self._entries) > self.max_entries:
-            self._evict_oldest()
+            if len(self._entries) > self.max_entries:
+                self._evict_oldest()
 
     def _flush_pending(self) -> None:
         if not self._pending:
@@ -174,55 +183,57 @@ class SemanticCache:
     def get(self, query: str, query_variations: Optional[List[str]] = None,
             device: Optional[str] = None) -> Optional[CacheResult]:
         t0 = time.perf_counter()
-        if not self._entries:
-            return None
-        self._flush_pending()
-        if self._matrix is None or self._matrix.shape[0] == 0:
-            return None
+        with self._lock:
+            if not self._entries:
+                return None
+            self._flush_pending()
+            if self._matrix is None or self._matrix.shape[0] == 0:
+                return None
 
-        device_key = _normalize_device(device)
-        query_texts = [query] + list(query_variations or [])
-        query_vecs = self.embedder.encode_sparse(query_texts)  # (n_query, dim), normalized
+            device_key = _normalize_device(device)
+            query_texts = [query] + list(query_variations or [])
+            query_vecs = self.embedder.encode_sparse(query_texts)  # (n_query, dim), normalized
 
-        # One vectorized sparse-dense matmul across every stored vector at
-        # once — this is the whole reason lookups stay fast past a few
-        # thousand entries instead of a per-entry Python loop.
-        sims = self._matrix @ query_vecs.T  # sparse result, (n_rows, n_query)
-        best_per_row = np.asarray(sims.max(axis=1).todense()).reshape(-1)  # (n_rows,)
+            # One vectorized sparse-dense matmul across every stored vector at
+            # once — this is the whole reason lookups stay fast past a few
+            # thousand entries instead of a per-entry Python loop.
+            sims = self._matrix @ query_vecs.T  # sparse result, (n_rows, n_query)
+            best_per_row = np.asarray(sims.max(axis=1).todense()).reshape(-1)  # (n_rows,)
 
-        # Hard device gate: "unknown" on either side matches anything,
-        # otherwise the row is masked out of consideration entirely.
-        row_devices = np.asarray(self._row_device)
-        device_mask = (
-            (row_devices == device_key)
-            | (row_devices == UNKNOWN_DEVICE)
-            | (device_key == UNKNOWN_DEVICE)
-        )
-        best_per_row = np.where(device_mask, best_per_row, -1.0)
+            # Hard device gate: "unknown" on either side matches anything,
+            # otherwise the row is masked out of consideration entirely.
+            row_devices = np.asarray(self._row_device)
+            device_mask = (
+                (row_devices == device_key)
+                | (row_devices == UNKNOWN_DEVICE)
+                | (device_key == UNKNOWN_DEVICE)
+            )
+            best_per_row = np.where(device_mask, best_per_row, -1.0)
 
-        # Group max similarity per entry (a query can match any of an
-        # entry's canonical/variation rows).
-        n_entries = len(self._entries)
-        best_per_entry = np.full(n_entries, -1.0, dtype=np.float64)
-        row_entry_arr = np.asarray(self._row_entry)
-        np.maximum.at(best_per_entry, row_entry_arr, best_per_row)
+            # Group max similarity per entry (a query can match any of an
+            # entry's canonical/variation rows).
+            n_entries = len(self._entries)
+            best_per_entry = np.full(n_entries, -1.0, dtype=np.float64)
+            row_entry_arr = np.asarray(self._row_entry)
+            np.maximum.at(best_per_entry, row_entry_arr, best_per_row)
 
-        best_entry_idx = int(np.argmax(best_per_entry))
-        best_sim = float(best_per_entry[best_entry_idx])
+            best_entry_idx = int(np.argmax(best_per_entry))
+            best_sim = float(best_per_entry[best_entry_idx])
 
-        latency_ms = (time.perf_counter() - t0) * 1000
+            latency_ms = (time.perf_counter() - t0) * 1000
 
-        if best_sim < self.similarity_threshold:
-            return None  # low-confidence -> null, never a guessed hit
+            if best_sim < self.similarity_threshold:
+                return None  # low-confidence -> null, never a guessed hit
 
-        entry = self._entries[best_entry_idx]
-        entry.hits += 1
-        return CacheResult(
-            response=entry.response,
-            similarity=best_sim,
-            matched_query=entry.canonical_query,
-            latency_ms=latency_ms,
-        )
+            entry = self._entries[best_entry_idx]
+            entry.hits += 1
+            return CacheResult(
+                response=entry.response,
+                similarity=best_sim,
+                matched_query=entry.canonical_query,
+                latency_ms=latency_ms,
+            )
 
     def __len__(self) -> int:
-        return len(self._entries)
+        with self._lock:
+            return len(self._entries)
