@@ -132,11 +132,26 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "screen_ghost_touch",
         "Screen registers touches on its own (ghost touches)",
         ["screen", "touch", "display"],
-        ["ghost touch", "on their own", "on its own", "by itself", "random touches", "registering on"],
+        # "on its own"/"by itself" alone used to also fire on any spontaneous-failure
+        # complaint (a screen that "goes black on its own" is not a ghost-touch report) --
+        # kept touch-specific instead so it can only fire alongside real touch behavior.
+        ["ghost touch", "random touches", "phantom touch", "touch input on its own",
+         "touching on its own", "taps on its own", "touches on its own"],
         "screen",
         "registers touch input on its own without anyone touching it",
         "keeps tapping stuff by itself, ghost touches everywhere",
         "ghost touch screen registers on its own",
+    ),
+    Symptom(
+        "inner_screen_failure",
+        "Inner/foldable screen failed, outer screen fine",
+        ["inner screen", "cover screen", "fold"],
+        ["stopped working", "no image", "dead", "doesn't respond", "doesnt respond",
+         "not responding", "stopped", "died"],
+        "inner foldable display",
+        "has stopped producing an image or responding to touch, while the cover screen remains functional",
+        "just died but the cover screen still works",
+        "dead, cover screen works, foldable",
     ),
     Symptom(
         "touch_unresponsive",
@@ -177,7 +192,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         ["keyboard", "when i type", "while typing", "when typing", "as i type"],
         ["not typing", "wont type", "won't type", "stuck", "lagging", "not working",
          "keeps freezing", "autocorrect is broken", "keeps messing up", "mistypes",
-         "letters come out", "come out wrong", "come out jumbled", "jumbled", "gibberish"],
+         "letters come out", "come out wrong", "come out jumbled", "jumbled", "gibberish",
+         "fails to register"],
         "keyboard",
         "fails to register keystrokes correctly or becomes unresponsive during use",
         "keeps messing up when I type, keys stick or don't register",
@@ -186,7 +202,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
     Symptom(
         "hardware_button_unresponsive",
         "Power or volume button physically stuck/unresponsive",
-        ["power button", "volume button", "volume key", "power key"],
+        ["power button", "volume button", "volume key", "power key", "button"],
         ["stuck", "not working", "doesn't work", "doesnt work", "stopped working",
          "unresponsive", "wont press", "won't press", "hard to press"],
         "button",
@@ -195,6 +211,28 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "button stuck not working",
     ),
 
+    Symptom(
+        "half_screen_dark",
+        "Half of the display is dark/unresponsive",
+        ["screen", "display", "half", "side"],
+        ["half black", "one side", "half dark", "half is completely dark",
+         "half completely dark", "half is dead"],
+        "screen",
+        "shows one half completely dark while the other half functions normally",
+        "half is dead, other half's fine",
+        "half dark half working",
+    ),
+    Symptom(
+        "screen_partial_lit",
+        "Only part of the display lights up",
+        ["screen", "display", "icons"],
+        ["only three app icons", "partially lit", "some icons light up", "stays dark and only",
+         "illuminates a small portion", "icons light up"],
+        "screen",
+        "only illuminates a small portion while the remainder stays dark",
+        "only a few icons light up, rest is dark",
+        "partially lit rest dark",
+    ),
     Symptom(
         "screen_blank_black",
         "Screen completely blank/black, no display output",
@@ -219,27 +257,6 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "cracked physical damage",
     ),
     Symptom(
-        "half_screen_dark",
-        "Half of the display is dark/unresponsive",
-        ["screen", "display", "half", "side"],
-        ["half black", "one side", "half dark", "half is completely dark"],
-        "screen",
-        "shows one half completely dark while the other half functions normally",
-        "half is dead, other half's fine",
-        "half dark half working",
-    ),
-    Symptom(
-        "inner_screen_failure",
-        "Inner/foldable screen failed, outer screen fine",
-        ["inner screen", "cover screen", "fold"],
-        ["stopped working", "no image", "dead", "doesn't respond", "doesnt respond",
-         "not responding", "stopped"],
-        "inner foldable display",
-        "has stopped producing an image or responding to touch, while the cover screen remains functional",
-        "just died but the cover screen still works",
-        "dead, cover screen works, foldable",
-    ),
-    Symptom(
         "distorted_display",
         "Display output visually distorted / discolored",
         ["screen", "display"],
@@ -251,20 +268,11 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "distorted visual glitch tint",
     ),
     Symptom(
-        "screen_partial_lit",
-        "Only part of the display lights up",
-        ["screen", "display", "icons"],
-        ["only three app icons", "partially lit", "some icons light up", "stays dark and only"],
-        "screen",
-        "only illuminates a small portion while the remainder stays dark",
-        "only a few icons light up, rest is dark",
-        "partially lit rest dark",
-    ),
-    Symptom(
         "screen_undersized",
         "Display doesn't fill full screen size",
         ["screen", "display"],
-        ["doesn't fill", "stays small", "expand to full size", "not full size", "shrunk down"],
+        ["doesn't fill", "stays small", "expand to full size", "not full size", "shrunk down",
+         "does not scale", "doesn't scale"],
         "screen",
         "does not scale to fill the full display area",
         "looks all shrunk down, not using the whole screen",
@@ -308,7 +316,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Device overheats during normal use",
         [],
         ["overheat", "gets very hot", "getting hot", "too hot", "extremely hot", "gets hot",
-         "gets extremely hot", "heats up"],
+         "gets extremely hot", "heats up", "excessively hot", "super hot"],
         "device",
         "becomes excessively hot during normal use",
         "gets super hot for no reason",
@@ -319,7 +327,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Device randomly restarts/reboots",
         [],
         ["randomly restart", "reboots on its own", "restarts by itself", "random reboot",
-         "keeps restarting", "restarts on its own"],
+         "keeps restarting", "restarts on its own", "reboots itself"],
         "device",
         "randomly restarts on its own with no warning or error message",
         "just reboots itself out of nowhere, no warning",
@@ -330,7 +338,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Device runs slow/laggy overall",
         [],
         ["running slow", "gotten slow", "is slow", "everything is laggy", "takes forever",
-         "very sluggish", "freezes a lot", "hangs a lot"],
+         "very sluggish", "freezes a lot", "hangs a lot", "noticeably slower",
+         "taking longer to respond"],
         "device",
         "runs noticeably slower than usual, with everything taking longer to respond",
         "is laggy and slow all of a sudden, everything takes forever",
@@ -376,7 +385,8 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Mobile data won't connect or keeps dropping",
         ["mobile data", "cellular data", "data connection"],
         ["won't connect", "wont connect", "not working", "keeps dropping", "no internet",
-         "not connecting", "wont turn on", "won't turn on", "keeps cutting out"],
+         "not connecting", "wont turn on", "won't turn on", "keeps cutting out",
+         "fails to connect", "drops the connection"],
         "mobile data connection",
         "fails to connect to mobile data or repeatedly drops the connection",
         "keeps cutting out, no internet unless I'm on Wi-Fi",
@@ -488,7 +498,7 @@ SYMPTOM_TAXONOMY: List[Symptom] = [
         "Not receiving notifications",
         ["notification"],
         ["not getting", "not receiving", "not showing", "missing", "stopped getting",
-         "no notifications", "aren't showing", "arent showing"],
+         "no notifications", "aren't showing", "arent showing", "not being delivered"],
         "notifications",
         "are not being delivered for messages or app alerts",
         "just aren't showing up at all anymore",
@@ -533,14 +543,18 @@ _DEFAULT_SYMPTOM = Symptom(
 
 
 def _symptom_confidence_from_hits(hits: int) -> float:
-    """Map a keyword-match score to a confidence in [0.0, 1.0]. Saturating,
-    not linear-unbounded: a single weak hit (possible only for whole-device
-    categories with one problem-term match and no component gate) is real
-    evidence but not strong evidence, so it lands at 0.5, not 1.0.
+    """Map a keyword-match score to a confidence in [0.0, 1.0]. hits is always
+    0, 1, or 2 now (extract_symptom caps each side to boolean presence): 0 is
+    the unclassified fallback, 1 is a single weak signal (only possible for a
+    whole-device category matched on a problem term alone, no component gate)
+    -- real evidence but not strong evidence, so 0.5 not 1.0 -- and 2 means both
+    the component and the problem were found, which is full confidence.
     """
     if hits <= 0:
         return 0.0
-    return min(1.0, 0.5 + 0.25 * (hits - 1))
+    if hits == 1:
+        return 0.5
+    return 1.0
 
 
 def extract_symptom(raw: str) -> Tuple[Symptom, float]:
@@ -562,8 +576,13 @@ def extract_symptom(raw: str) -> Tuple[Symptom, float]:
     best: Optional[Symptom] = None
     best_hits = 0
     for symptom in SYMPTOM_TAXONOMY:
-        component_hits = sum(1 for kw in symptom.component_terms if kw in lowered)
-        problem_hits = sum(1 for kw in symptom.problem_terms if kw in lowered)
+        # Capped to 0/1 per side, not summed across every matching keyword-list
+        # entry: two entries that both match (e.g. "blank" and "goes blank") are
+        # the same underlying evidence, not two independent signals, and a
+        # category with a longer list of near-duplicate phrasings must not
+        # outscore a more specific category on that account alone.
+        component_hits = 1 if any(kw in lowered for kw in symptom.component_terms) else 0
+        problem_hits = 1 if any(kw in lowered for kw in symptom.problem_terms) else 0
         if symptom.component_terms and component_hits == 0:
             continue  # part-specific symptom, but that part was never mentioned
         if problem_hits == 0:

@@ -488,3 +488,87 @@ def test_heavy_typos_are_a_known_limitation_not_a_crash():
     # keyword substring. Fixing this needs fuzzy/edit-distance matching (or
     # routing through the LLM path) — tracked as a known gap in README.md,
     # not silently asserted-around here.
+
+
+# -- regression tests for the taxonomy scoring/tie-breaking bug scripts/benchmark_cache.py's
+# self-classification check surfaced (metrics.md §3): 12 of 35 categories didn't
+# keyword-classify their own formal/casual template text back to themselves --
+
+
+def test_every_taxonomy_category_self_classifies_its_own_template_text():
+    """The exact check scripts/benchmark_cache.py's controlled register experiment
+    runs, promoted to a real regression test instead of a benchmark side-note.
+    Two independent bugs were behind the original 12 failures: (1) extract_symptom()
+    summed every matching keyword-list entry instead of capping each side to
+    boolean presence, so a category with a long, redundant list of near-duplicate
+    phrasings (e.g. screen_blank_black's 19 "blank"/"black" variants) could
+    outscore a more specific category with a short, precise list purely by having
+    more synonyms written down for the same evidence -- not stronger evidence; and
+    (2) several categories' own formal/casual template wording simply didn't share
+    any vocabulary with that category's own problem_terms (e.g. overheating's
+    formal text says "excessively hot", but the keyword list only had "too hot"/
+    "extremely hot"/etc.). Every category must at least recognize its own
+    description now.
+    """
+    from enrichment import SYMPTOM_TAXONOMY, extract_symptom
+
+    device = "Galaxy S23"
+    failures = []
+    for symptom in SYMPTOM_TAXONOMY:
+        formal_text = f"My {device} {symptom.subject} {symptom.formal}."
+        casual_text = f"my {device} {symptom.subject} {symptom.casual}"
+        for label, text in [("formal", formal_text), ("casual", casual_text)]:
+            got, _ = extract_symptom(text)
+            if got.category != symptom.category:
+                failures.append((symptom.category, label, got.category))
+    assert not failures, f"self-classification failures: {failures}"
+
+
+def test_screen_ghost_touch_does_not_collide_with_spontaneous_screen_failure():
+    """Regression: extract_symptom()'s old summed-hit scoring let screen_ghost_touch's
+    generic "on its own"/"by itself" problem terms fire on ANY spontaneous-failure
+    complaint, not just touch behavior -- "screen suddenly went completely black on
+    its own" (a real unseen_scenarios.txt line) misclassified as ghost-touch instead
+    of a black screen, purely because "screen" + "on its own" happened to also be a
+    ghost_touch match. Fixed by making ghost_touch's problem terms touch-specific
+    ("touch input on its own", "touches on its own", ...) instead of bare "on its
+    own"/"by itself", so it can only fire alongside real touch behavior.
+    """
+    result = enrich(
+        "My Samsung Galaxy A15/A16 screen suddenly went completely black on its own "
+        "after about a month of use. It doesn't display anything, even when I try to turn it on."
+    )
+    assert result.symptom_category == "screen_blank_black"
+    assert result.symptom_category != "screen_ghost_touch"
+
+
+def test_foldable_inner_screen_failure_not_misclassified_as_generic_touch_unresponsive():
+    """Regression: a foldable's inner-screen failure ("stopped working by itself...
+    doesn't respond to touch... cover screen still works") shares "screen" +
+    "doesn't respond" with the generic touch_unresponsive category, which is listed
+    earlier in the taxonomy. Under the old summed-hit scoring, inner_screen_failure
+    won anyway by matching more of its own (redundant) problem terms; under the
+    boolean-capped scoring both tie at 2, so inner_screen_failure -- correctly the
+    more specific category for a complaint that names "inner screen"/"cover
+    screen" -- had to be reordered ahead of touch_unresponsive to keep winning
+    ties, consistent with the taxonomy's existing "more specific categories listed
+    first" design principle.
+    """
+    result = enrich(
+        "My Galaxy Flip 7 inner screen stopped working by itself; it shows no image "
+        "and doesn't respond to touch, while the outer cover screen still works."
+    )
+    assert result.symptom_category == "inner_screen_failure"
+    assert result.symptom_category != "touch_unresponsive"
+
+
+def test_half_screen_dark_not_misclassified_as_generic_black_screen():
+    """Regression: "half is dead, other half's fine" shares "screen" + "is dead"
+    with the generic screen_blank_black category (listed earlier in the original
+    taxonomy order). half_screen_dark needed its own "half is dead" problem term
+    plus reordering ahead of screen_blank_black to correctly win this as the more
+    specific half-display symptom.
+    """
+    result = enrich("My Galaxy S22 screen half is dead, other half's fine.")
+    assert result.symptom_category == "half_screen_dark"
+    assert result.symptom_category != "screen_blank_black"

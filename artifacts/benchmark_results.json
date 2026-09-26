@@ -9,16 +9,16 @@
   "seed_lines_cached": 16,
   "similarity_threshold": 0.8,
   "cache_get_latency_ms": {
-    "p50": 2.084,
-    "p95": 2.488,
-    "p99": 2.71,
-    "max": 2.765,
+    "p50": 1.64,
+    "p95": 2.407,
+    "p99": 2.408,
+    "max": 2.409,
     "n": 21
   },
   "stage0_enrich_latency_ms": {
-    "p50": 0.137,
-    "p95": 0.181,
-    "max": 0.57,
+    "p50": 0.101,
+    "p95": 0.154,
+    "max": 0.457,
     "n": 58
   },
   "per_line": [
@@ -316,31 +316,25 @@
   ],
   "controlled_register_experiment": {
     "hit_rate": 1.0,
-    "categories_scored": 23,
-    "categories_hit": 23,
+    "categories_scored": 35,
+    "categories_hit": 35,
     "categories_total": 35,
-    "categories_excluded_self_classification_failure": [
-      "screen_flicker_then_blank",
-      "keyboard_typing_problem",
-      "hardware_button_unresponsive",
-      "half_screen_dark",
-      "inner_screen_failure",
-      "screen_partial_lit",
-      "screen_undersized",
-      "overheating",
-      "random_restarts",
-      "sluggish_performance",
-      "mobile_data_connectivity",
-      "no_notifications"
-    ],
+    "categories_excluded_self_classification_failure": [],
     "per_category": [
       {
         "category": "screen_flicker_then_blank",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "screen_ghost_touch",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "inner_screen_failure",
         "scored": true,
         "hit": true,
         "similarity": 1.0
@@ -359,13 +353,27 @@
       },
       {
         "category": "keyboard_typing_problem",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "hardware_button_unresponsive",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "half_screen_dark",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "screen_partial_lit",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "screen_blank_black",
@@ -380,30 +388,16 @@
         "similarity": 1.0
       },
       {
-        "category": "half_screen_dark",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
-      },
-      {
-        "category": "inner_screen_failure",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
-      },
-      {
         "category": "distorted_display",
         "scored": true,
         "hit": true,
         "similarity": 1.0
       },
       {
-        "category": "screen_partial_lit",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
-      },
-      {
         "category": "screen_undersized",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "floating_assistant_icon",
@@ -425,18 +419,21 @@
       },
       {
         "category": "overheating",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "random_restarts",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "sluggish_performance",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "wifi_connectivity",
@@ -458,8 +455,9 @@
       },
       {
         "category": "mobile_data_connectivity",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "gps_location_inaccurate",
@@ -517,8 +515,9 @@
       },
       {
         "category": "no_notifications",
-        "scored": false,
-        "reason": "formal/casual template text doesn't self-classify"
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
       },
       {
         "category": "software_update_fails",
