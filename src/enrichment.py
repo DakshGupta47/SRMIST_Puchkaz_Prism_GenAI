@@ -613,6 +613,70 @@ def _strip_code_fence(text: str) -> str:
     return stripped.strip()
 
 
+LLM_EXTRA_VARIATIONS = 4  # paraphrases requested from the LLM on the non-keyword path
+
+
+def _validated_category(category) -> Optional[str]:
+    """Whitelist check shared by both LLM classification paths: only an
+    exact, known, non-default category code survives."""
+    if (
+        isinstance(category, str)
+        and category in _VALID_SYMPTOM_CATEGORIES
+        and category != _DEFAULT_SYMPTOM.category
+    ):
+        return category
+    return None
+
+
+def _llm_classify_and_paraphrase(raw: str, client: LLMClient, n: int = LLM_EXTRA_VARIATIONS
+                                 ) -> Tuple[Optional[str], List[str]]:
+    """ONE round-trip that does both jobs the unclassified path needs:
+    pick a category from the whitelist AND paraphrase the complaint.
+
+    Before this, an unclassified complaint paid for two sequential LLM
+    calls — _llm_classify_symptom() in normalize_query(), then
+    _llm_variations() in generate_variations() — each a full network
+    round-trip on the cold path. The paraphrases don't depend on the
+    category (they reword the customer's own complaint, not the canonical
+    template text), so nothing is lost by asking for both at once, and the
+    cold-path LLM latency/cost for llm_fallback/unclassified cases halves.
+
+    Same guardrails as before, applied independently to each half: the
+    category must pass the whitelist (else None -> caller keeps
+    unclassified_issue), and the variations are returned raw here and
+    validated in generate_variations() exactly as _llm_variations() output
+    always was. A response that only has "category" (or only "variations")
+    still yields the half it has. Never raises.
+    """
+    category_list = "\n".join(f"- {s.category}: {s.label}" for s in SYMPTOM_TAXONOMY)
+    system_prompt = (
+        "You do two things for a Samsung device support complaint.\n"
+        "1. Classify it into EXACTLY ONE of the category codes listed below, or "
+        "\"unclassified_issue\" if none of them genuinely describe the complaint. "
+        "Never invent a new category code that isn't in the list.\n"
+        f"2. Write {n} short alternate phrasings of the same complaint for "
+        "search/cache matching. Only reword it — never add new symptoms, "
+        "devices, or facts that are not already present.\n"
+        "Respond with strict JSON and nothing else: "
+        '{"category": "<one exact code from the list>", "variations": ["...", "..."]}\n\n'
+        + category_list
+    )
+    user_prompt = f"Complaint: {raw}"
+    try:
+        parsed = json.loads(_strip_code_fence(client.complete(system_prompt, user_prompt)))
+    except Exception:
+        return None, []
+    if not isinstance(parsed, dict):
+        return None, []
+    category = _validated_category(parsed.get("category"))
+    raw_variations = parsed.get("variations")
+    variations = (
+        [v.strip() for v in raw_variations if isinstance(v, str) and v.strip()]
+        if isinstance(raw_variations, list) else []
+    )
+    return category, variations
+
+
 def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
     """Ask the LLM to pick ONE of the known category codes, or admit it
     doesn't know. The whitelist check against _VALID_SYMPTOM_CATEGORIES is
@@ -635,12 +699,7 @@ def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
         raw_resp = client.complete(system_prompt, user_prompt)
         parsed = json.loads(_strip_code_fence(raw_resp))
         category = parsed.get("category") if isinstance(parsed, dict) else None
-        if (
-            isinstance(category, str)
-            and category in _VALID_SYMPTOM_CATEGORIES
-            and category != _DEFAULT_SYMPTOM.category
-        ):
-            return category
+        return _validated_category(category)
     except Exception:
         pass
     return None
@@ -662,6 +721,11 @@ class EnrichmentResult:
     symptom_confidence: float = 0.0   # 0.0 for "unclassified_issue"; see _symptom_confidence_from_hits
     classification_source: str = "keyword_match"  # "keyword_match" | "llm_fallback" | "unclassified"
     query_variations: List[str] = field(default_factory=list)
+    # Paraphrases already obtained by the combined classify+paraphrase call in
+    # normalize_query(). None = no LLM call was made (generate_variations may
+    # make its own); a list (possibly empty) = already paid for, don't call
+    # again. Internal plumbing only — deliberately not part of to_dict().
+    llm_variations_prefetched: Optional[List[str]] = field(default=None, repr=False)
 
     @property
     def overall_confidence(self) -> float:
@@ -723,11 +787,15 @@ def normalize_query(raw_complaint: str, llm_client: Optional[LLMClient] = None) 
     device = extract_device(cleaned)
     symptom, symptom_confidence = extract_symptom(cleaned)
     classification_source = "keyword_match" if symptom.category != _DEFAULT_SYMPTOM.category else "unclassified"
+    prefetched: Optional[List[str]] = None
 
     if symptom.category == _DEFAULT_SYMPTOM.category:
         client = llm_client or get_llm_client()
         if not isinstance(client, MockLLMClient):
-            llm_category = _llm_classify_symptom(cleaned, client)
+            # One call for both classification and paraphrases (see
+            # _llm_classify_and_paraphrase) — generate_variations() reuses
+            # the paraphrases instead of making a second round-trip.
+            llm_category, prefetched = _llm_classify_and_paraphrase(cleaned, client)
             if llm_category is not None:
                 matched = next((s for s in SYMPTOM_TAXONOMY if s.category == llm_category), None)
                 if matched is not None:
@@ -746,6 +814,7 @@ def normalize_query(raw_complaint: str, llm_client: Optional[LLMClient] = None) 
         device_confidence=device_confidence,
         symptom_confidence=symptom_confidence,
         classification_source=classification_source,
+        llm_variations_prefetched=prefetched,
     )
 
 
@@ -843,7 +912,10 @@ def generate_variations(
 
     client = llm_client or get_llm_client()
     if result.classification_source != "keyword_match" and not isinstance(client, MockLLMClient):
-        extra = _llm_variations(result, client, n=4)
+        if result.llm_variations_prefetched is not None:
+            extra = result.llm_variations_prefetched  # already fetched in normalize_query's single call
+        else:
+            extra = _llm_variations(result, client, n=LLM_EXTRA_VARIATIONS)
         # validate: non-empty, plausible length, must still mention the device
         # or symptom keyword so a hallucinated unrelated paraphrase is dropped
         _matched_symptom = next(

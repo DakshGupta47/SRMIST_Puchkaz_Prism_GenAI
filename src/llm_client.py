@@ -91,6 +91,19 @@ class MockLLMClient(LLMClient):
 # classification call but short enough that a hung provider can't matter.
 _LLM_TIMEOUT_SECONDS = 8
 
+# §6 grades "Deterministic Execution: consistent action plans for identical or
+# semantically identical inputs". Every real provider is therefore called at
+# temperature 0 (greedy decoding) — provider defaults (typically 1.0)
+# sample, so two identical llm_fallback requests could come back
+# with different categories/paraphrases run to run. Temperature 0 alone is
+# necessary but not sufficient: providers don't guarantee bit-identical
+# output even at T=0 (batching / floating-point nondeterminism on their
+# side), so _TimeoutGuardedClient below also memoizes successful responses
+# per exact (system_prompt, user_prompt) pair — an identical request within
+# a process gets an identical answer by construction, not by hope.
+_LLM_TEMPERATURE = 0.0
+_LLM_MEMO_MAX_ENTRIES = 2048
+
 
 class GeminiLLMClient(LLMClient):
     def __init__(self, model: str | None = None):
@@ -104,6 +117,7 @@ class GeminiLLMClient(LLMClient):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._model.generate_content(
             [system_prompt, user_prompt],
+            generation_config={"temperature": _LLM_TEMPERATURE},
             request_options={"timeout": _LLM_TIMEOUT_SECONDS},
         )
         return resp.text
@@ -127,6 +141,8 @@ class OpenAILLMClient(LLMClient):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            temperature=_LLM_TEMPERATURE,
+            seed=0,  # OpenAI's best-effort reproducibility knob; harmless where ignored
         )
         return resp.choices[0].message.content or ""
 
@@ -146,6 +162,7 @@ class AnthropicLLMClient(LLMClient):
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=1024,
+            temperature=_LLM_TEMPERATURE,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -173,16 +190,32 @@ class _TimeoutGuardedClient(LLMClient):
     (Python cannot forcibly stop a running thread) — but the caller is
     never blocked longer than `timeout_seconds` regardless, which is the
     property that actually matters for the API's own latency budget.
+
+    Also memoizes successful responses per exact (system_prompt,
+    user_prompt) pair (bounded, FIFO-evicted) — see _LLM_TEMPERATURE for
+    why temperature 0 alone doesn't guarantee identical output. Failures
+    and timeouts are never memoized (they raise before the store), so a
+    transient provider error can't get pinned as "the" answer.
     """
 
-    def __init__(self, inner: LLMClient, timeout_seconds: float = _LLM_TIMEOUT_SECONDS):
+    def __init__(self, inner: LLMClient, timeout_seconds: float = _LLM_TIMEOUT_SECONDS,
+                 memo_max_entries: int = _LLM_MEMO_MAX_ENTRIES):
         self._inner = inner
         self._timeout = timeout_seconds
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._memo: dict = {}
+        self._memo_max = memo_max_entries
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
+        key = (system_prompt, user_prompt)
+        if key in self._memo:
+            return self._memo[key]
         future = self._executor.submit(self._inner.complete, system_prompt, user_prompt)
-        return future.result(timeout=self._timeout)  # raises TimeoutError past the deadline
+        text = future.result(timeout=self._timeout)  # raises TimeoutError past the deadline
+        if len(self._memo) >= self._memo_max:
+            self._memo.pop(next(iter(self._memo)))  # dicts keep insertion order -> FIFO
+        self._memo[key] = text
+        return text
 
     @property
     def model_name(self) -> str:

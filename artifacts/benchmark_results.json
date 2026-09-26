@@ -1,0 +1,537 @@
+{
+  "overall_hit_rate": 0.0,
+  "unseen_scenarios_total": 38,
+  "unseen_scenarios_scored": 21,
+  "unseen_scenarios_skipped_low_confidence": 17,
+  "unseen_scenarios_hits": 0,
+  "seed_lines_from_input_txt": 20,
+  "seed_lines_skipped_low_confidence": 3,
+  "seed_lines_cached": 16,
+  "similarity_threshold": 0.8,
+  "cache_get_latency_ms": {
+    "p50": 2.084,
+    "p95": 2.488,
+    "p99": 2.71,
+    "max": 2.765,
+    "n": 21
+  },
+  "stage0_enrich_latency_ms": {
+    "p50": 0.137,
+    "p95": 0.181,
+    "max": 0.57,
+    "n": 58
+  },
+  "per_line": [
+    {
+      "query": "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+      "category": "battery_drain",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy S24 Ultra won't charge at all no matter what cable I use.",
+      "category": "charging_fails_or_slow",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy Z Flip 6 gets extremely hot in my pocket just from browsing.",
+      "category": "overheating",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "Wifi keeps disconnecting on my Galaxy A15 every few minutes.",
+      "category": "wifi_connectivity",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy S23's Bluetooth won't pair with my car anymore, worked fine last week.",
+      "category": "bluetooth_pairing",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "I have no signal at all on my Galaxy S21, can't make or receive calls.",
+      "category": "no_signal_network",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "There's no sound coming out of the speaker on my Galaxy S22 during calls.",
+      "category": "no_sound",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "The audio on my Galaxy Buds Pro sounds distorted and crackly.",
+      "category": "distorted_sound",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "Camera app on my Galaxy S24 keeps crashing the second I open it.",
+      "category": "camera_crashes",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "Every photo I take on my Galaxy S23 Ultra comes out blurry.",
+      "category": "camera_blurry",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy S22's storage is completely full and I can't install any updates.",
+      "category": "storage_full",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My phone has gotten so slow lately, everything takes forever to load.",
+      "category": "sluggish_performance",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "The Instagram app on my Galaxy A54 keeps force-closing every few minutes.",
+      "category": "app_crashing",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "Fingerprint unlock stopped working on my Galaxy S23, it just won't recognize me.",
+      "category": "fingerprint_face_unlock_fail",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "I'm not getting any WhatsApp notifications on my Galaxy S22 anymore.",
+      "category": "no_notifications",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "The software update on my Galaxy S24 keeps failing every time I try to install it.",
+      "category": "software_update_fails",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "my s22 battery dying so fast wtf",
+      "category": "battery_drain",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "GALAXY A15 NO SIGNAL HELP",
+      "category": "no_signal_network",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "battery drain",
+      "category": "battery_drain",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "phone wont charge",
+      "category": "charging_fails_or_slow",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "camera crash",
+      "category": "camera_crashes",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "storage full cant update anything",
+      "category": "storage_full",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "My SM-G991B keeps overheating when I use the camera for more than a minute.",
+      "category": "overheating",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy Note 20 Ultra screen has ghost touches registering on their own.",
+      "category": "screen_ghost_touch",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My Galaxy Watch 6 won't sync my heart rate data anymore.",
+      "category": "unclassified_issue",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "My Galaxy Tab S9 FE screen is unresponsive to touch in the bottom corner only.",
+      "category": "touch_unresponsive",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My phone screen and my battery are both acting up, screen flickers and it dies really fast too.",
+      "category": "screen_flicker_then_blank",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "I dropped my phone in water and now nothing works, screen is dead and it won't charge.",
+      "category": "screen_blank_black",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "1) Wifi keeps dropping every 30 seconds. 2) Bluetooth also won't connect to my earbuds.",
+      "category": "wifi_connectivity",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "My device randomly restarts several times a day, no crash message or anything.",
+      "category": "random_restarts",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "The screen on my brand new Galaxy S25 has a weird green tint across the whole display.",
+      "category": "distorted_display",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My mom's Galaxy A05 keeps saying \"storage almost full\" even after she deleted apps.",
+      "category": "storage_full",
+      "scored": true,
+      "hit": false,
+      "similarity": null
+    },
+    {
+      "query": "My tablet just makes a clicking noise and the screen is off, not sure what device it even is.",
+      "category": "unclassified_issue",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "Ma galaxy S22 skreen iz blenk n wont trun on",
+      "category": "unclassified_issue",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "Battery",
+      "category": "unclassified_issue",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "No sound",
+      "category": "no_sound",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "Cant connect wifi",
+      "category": "wifi_connectivity",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    },
+    {
+      "query": "My Galaxy S22 is fine now, it was just a software glitch, never mind.",
+      "category": "unclassified_issue",
+      "scored": false,
+      "reason": "is_low_confidence (bypasses cache, per pipeline.py)"
+    }
+  ],
+  "misses": [
+    "My Galaxy S22 battery drains extremely fast, dead by noon even with light use.",
+    "My Galaxy S24 Ultra won't charge at all no matter what cable I use.",
+    "My Galaxy Z Flip 6 gets extremely hot in my pocket just from browsing.",
+    "Wifi keeps disconnecting on my Galaxy A15 every few minutes.",
+    "My Galaxy S23's Bluetooth won't pair with my car anymore, worked fine last week.",
+    "I have no signal at all on my Galaxy S21, can't make or receive calls.",
+    "There's no sound coming out of the speaker on my Galaxy S22 during calls.",
+    "The audio on my Galaxy Buds Pro sounds distorted and crackly.",
+    "Camera app on my Galaxy S24 keeps crashing the second I open it.",
+    "Every photo I take on my Galaxy S23 Ultra comes out blurry.",
+    "My Galaxy S22's storage is completely full and I can't install any updates.",
+    "The Instagram app on my Galaxy A54 keeps force-closing every few minutes.",
+    "Fingerprint unlock stopped working on my Galaxy S23, it just won't recognize me.",
+    "I'm not getting any WhatsApp notifications on my Galaxy S22 anymore.",
+    "The software update on my Galaxy S24 keeps failing every time I try to install it.",
+    "GALAXY A15 NO SIGNAL HELP",
+    "My SM-G991B keeps overheating when I use the camera for more than a minute.",
+    "My Galaxy Note 20 Ultra screen has ghost touches registering on their own.",
+    "My Galaxy Tab S9 FE screen is unresponsive to touch in the bottom corner only.",
+    "The screen on my brand new Galaxy S25 has a weird green tint across the whole display.",
+    "My mom's Galaxy A05 keeps saying \"storage almost full\" even after she deleted apps."
+  ],
+  "low_confidence_unseen_queries": [
+    "My phone has gotten so slow lately, everything takes forever to load.",
+    "my s22 battery dying so fast wtf",
+    "battery drain",
+    "phone wont charge",
+    "camera crash",
+    "storage full cant update anything",
+    "My Galaxy Watch 6 won't sync my heart rate data anymore.",
+    "My phone screen and my battery are both acting up, screen flickers and it dies really fast too.",
+    "I dropped my phone in water and now nothing works, screen is dead and it won't charge.",
+    "1) Wifi keeps dropping every 30 seconds. 2) Bluetooth also won't connect to my earbuds.",
+    "My device randomly restarts several times a day, no crash message or anything.",
+    "My tablet just makes a clicking noise and the screen is off, not sure what device it even is.",
+    "Ma galaxy S22 skreen iz blenk n wont trun on",
+    "Battery",
+    "No sound",
+    "Cant connect wifi",
+    "My Galaxy S22 is fine now, it was just a software glitch, never mind."
+  ],
+  "controlled_register_experiment": {
+    "hit_rate": 1.0,
+    "categories_scored": 23,
+    "categories_hit": 23,
+    "categories_total": 35,
+    "categories_excluded_self_classification_failure": [
+      "screen_flicker_then_blank",
+      "keyboard_typing_problem",
+      "hardware_button_unresponsive",
+      "half_screen_dark",
+      "inner_screen_failure",
+      "screen_partial_lit",
+      "screen_undersized",
+      "overheating",
+      "random_restarts",
+      "sluggish_performance",
+      "mobile_data_connectivity",
+      "no_notifications"
+    ],
+    "per_category": [
+      {
+        "category": "screen_flicker_then_blank",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "screen_ghost_touch",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "touch_unresponsive",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "touch_lag",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "keyboard_typing_problem",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "hardware_button_unresponsive",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "screen_blank_black",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "screen_cracked",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "half_screen_dark",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "inner_screen_failure",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "distorted_display",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "screen_partial_lit",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "screen_undersized",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "floating_assistant_icon",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "battery_drain",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "charging_fails_or_slow",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "overheating",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "random_restarts",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "sluggish_performance",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "wifi_connectivity",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "bluetooth_pairing",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "no_signal_network",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "mobile_data_connectivity",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "gps_location_inaccurate",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "vibration_not_working",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "distorted_sound",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "no_sound",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "camera_crashes",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "camera_blurry",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "storage_full",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "app_crashing",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "fingerprint_face_unlock_fail",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "no_notifications",
+        "scored": false,
+        "reason": "formal/casual template text doesn't self-classify"
+      },
+      {
+        "category": "software_update_fails",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      },
+      {
+        "category": "screen_reader_accessibility_fail",
+        "scored": true,
+        "hit": true,
+        "similarity": 1.0
+      }
+    ]
+  }
+}
