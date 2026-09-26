@@ -31,7 +31,7 @@ query: `input.txt`'s 20 samples are all screen/display symptoms, while
 `unseen_scenarios.txt` deliberately spans battery, connectivity, audio, camera,
 storage, apps, biometrics, notifications and software-update categories that
 `input.txt` never seeds. A query can't hit a cache entry that was never written for
-its category — first-occurrence misses in a 20-entry seed set covering 36 categories
+its category — first-occurrence misses in a 20-entry seed set covering 35 categories
 are structural, not a matching failure.
 
 Two further, more actionable causes surfaced by this run:
@@ -69,9 +69,13 @@ held constant and a cache entry already present, does a *different register*
 
 | Metric | Value |
 |---|---|
-| Categories scored (formal → cache, casual → query, same device) | 23 / 36 |
-| Categories excluded (formal/casual template text doesn't self-classify — see §3) | 12 |
-| **Hit rate** | **100.0%** (23/23) |
+| Categories scored (formal → cache, casual → query, same device) | 35 / 35 |
+| Categories excluded (formal/casual template text doesn't self-classify — see §3) | 0 |
+| **Hit rate** | **100.0%** (35/35) |
+
+(Previously 23/23 with 12 categories excluded — the taxonomy scoring bug in §3 was
+fixed since the last run of this benchmark, so all 35 categories are scored now,
+not just the ones whose own template text happened to self-classify.)
 
 So the TF-IDF similarity mechanism and the 0.80 threshold comfortably clear the
 ≥80% bar **once a same-device entry exists for the category** — the gap in §1a is
@@ -106,11 +110,16 @@ end-to-end number would be misleading to publish from Member A's slice alone.
 `llm_client.py` bounds its worst case, but this network has no reachable
 provider to measure the typical case against.
 
-## 3. Coverage / taxonomy gap surfaced by this benchmark
+## 3. Coverage / taxonomy gap surfaced by this benchmark — fixed
 
-12 of 36 categories don't classify their **own** `formal`/`casual` template text
-back to themselves via `extract_symptom()`'s keyword scoring (ties broken by
-taxonomy order favor an earlier, more general entry):
+**Update:** this section originally reported 12 of 36 categories failing to
+classify their own template text; it has since been fixed (README.md bug #8) and
+is kept here as the record of what was found and how, per this repo's convention
+of documenting real bugs rather than silently correcting the number.
+
+Originally: 12 of the taxonomy's 35 categories (the benchmark undercounted the
+total as 36) didn't classify their **own** `formal`/`casual` template text back to
+themselves via `extract_symptom()`'s keyword scoring:
 
 ```
 screen_flicker_then_blank, keyboard_typing_problem, hardware_button_unresponsive,
@@ -119,9 +128,31 @@ overheating, random_restarts, sluggish_performance, mobile_data_connectivity,
 no_notifications
 ```
 
-This is a genuine taxonomy-overlap finding (not a benchmark artifact) worth a
-follow-up pass on `SYMPTOM_TAXONOMY`'s keyword lists and tie-breaking order —
-tracked here rather than silently excluded from the headline number.
+Two distinct bugs, not one: (1) `extract_symptom()` **summed** every matching
+keyword-list entry rather than asking "is there evidence at all" — a category
+with a long, redundant list of near-duplicate phrasings (`screen_blank_black`'s
+19 "blank"/"black" variants) could outscore a short, precise, more-specific list
+(`screen_flicker_then_blank`'s 2 terms) purely by having more synonyms written
+down for the same evidence, which silently broke the taxonomy's own documented
+"more specific categories win ties" ordering whenever that inflation made two
+categories' scores unequal when they should have tied; and (2) several
+categories' own formal/casual wording used vocabulary their `problem_terms`
+didn't actually list (`overheating`'s formal text says "excessively hot"; the
+keyword list only had "too hot"/"extremely hot"/etc.) — a real coverage gap
+independent of this benchmark, since an actual customer phrasing it that way
+would have hit the same miss.
+
+Fixed by capping `extract_symptom()`'s component/problem scoring to boolean
+presence per side instead of a sum, tightening `screen_ghost_touch`'s problem
+terms to require actual touch-related wording (bare "on its own"/"by itself" was
+generic enough to also fire on an unrelated spontaneous-failure complaint — a
+real `unseen_scenarios.txt` black-screen line was misclassified as ghost-touch
+this way before the fix), reordering `half_screen_dark`/`screen_partial_lit`/
+`inner_screen_failure` ahead of the generic categories they were incorrectly
+losing ties to, and adding the missing vocabulary to 8 other categories. All 35
+categories now self-classify (§1b above: 35/35, 0 excluded), locked in by
+`test_every_taxonomy_category_self_classifies_its_own_template_text` and 3 named
+collision-regression tests in `tests/test_enrichment.py`.
 
 ## 4. Cost tracking
 
@@ -147,3 +178,29 @@ identical inputs" criterion. Not exercised in this benchmark run (`LLM_PROVIDER`
 unset throughout), so provider-side behavior at `temperature=0` is unverified
 against a live API from this environment (network egress here doesn't reach
 Gemini/OpenAI/Anthropic — see `README.md`'s "Why TF-IDF" section).
+
+## 6. Test coverage & reliability
+
+139 tests total (up from 125), all passing:
+
+- `tests/test_api.py` (9 tests, new) — previously every test in this suite exercised
+  `enrichment.py`/`cache.py`/`pipeline.py` directly and none went through the actual
+  FastAPI layer `/v1/troubleshoot` is served through. Combined with `api.py` having
+  no `try/except` anywhere, an unexpected exception in any downstream stage would
+  have reached a caller as FastAPI's default response — a raw Python traceback with
+  file paths and source lines — on the team's real deliverable endpoint. Fixed with
+  a global `@app.exception_handler(Exception)` (logs server-side, returns a clean
+  `{"error": "internal_error", ...}` body) plus `TestClient`-based coverage of every
+  route: happy path, malformed/missing fields, an empty query, and a forced
+  exception proving the handler actually strips internals from the response.
+- `test_concurrent_put_and_get_do_not_corrupt_the_index` (`tests/test_cache.py`,
+  new) — `SemanticCache` previously had no concurrency guard (disclosed as a known
+  gap in README.md, not fixed); `put()`'s several sequential, non-atomic mutations
+  and `get()`'s `_flush_pending()` could interleave under concurrent access and
+  leave the index inconsistent. Fixed with a `threading.Lock` around `put()`,
+  `get()`, and `__len__()`; the new test hammers one cache from 8 writer + 3 reader
+  threads and confirms every entry written is still independently findable
+  afterwards.
+- 4 new regression tests in `tests/test_enrichment.py` lock in the taxonomy scoring
+  fix from §3 above, including a check that all 35 categories self-classify their
+  own template text (previously 23/35 — see §3).

@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 125 tests, enrichment + cache + pipeline + no-hallucination
+tests/             pytest suite: 139 tests, enrichment + cache + pipeline + api + no-hallucination
 ```
 
 ## Setup
@@ -225,6 +225,64 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    `test_empty_result_carries_no_match_fallback_when_siis_response_given`,
    `test_empty_result_carries_no_siis_context_fallback_when_nothing_given`,
    and `test_fallback_metadata_is_absent_when_contexts_are_non_empty`.
+8. **Taxonomy scoring summed every matching keyword-list entry instead of
+   asking "is there evidence at all", letting list length substitute for
+   specificity.** Surfaced by `scripts/benchmark_cache.py`'s own
+   self-classification check: 12 of the taxonomy's 35 categories didn't
+   keyword-classify their own formal/casual template text back to
+   themselves (metrics.md §3). Root cause was two bugs, not one: (a)
+   `extract_symptom()` summed every problem/component term that matched,
+   so a category with a long, redundant keyword list (`screen_blank_black`'s
+   19 near-duplicate "blank"/"black" phrasings) could outscore a more
+   specific category with a short, precise one (`screen_flicker_then_blank`'s
+   2 terms) purely by having more synonyms written down for the *same*
+   evidence — not stronger evidence — which also broke the taxonomy's own
+   stated "more specific categories win ties" design when two categories'
+   scores weren't actually tied because of this inflation; and (b) several
+   categories' own formal/casual wording shared no vocabulary at all with
+   that category's `problem_terms` (`overheating`'s formal text says
+   "excessively hot"; the keyword list only had "too hot"/"extremely hot").
+   Fixed by capping each side (component/problem) to boolean presence
+   instead of a sum, tightening `screen_ghost_touch`'s problem terms to be
+   touch-specific (bare "on its own"/"by itself" was firing on any
+   spontaneous-failure complaint, not just touch behavior — a real
+   `unseen_scenarios.txt` black-screen line was misclassified as
+   ghost-touch this way), reordering `half_screen_dark`/`screen_partial_lit`/
+   `inner_screen_failure` ahead of the generic categories they were losing
+   ties to, and adding the missing vocabulary to 8 other categories. All 35
+   categories now self-classify (100%, up from 23/35 — see metrics.md §1b/§3);
+   all 125 pre-existing tests plus 4 new regression tests
+   (`test_every_taxonomy_category_self_classifies_its_own_template_text` and
+   3 named collision regressions) pass.
+9. **`api.py` — the actual HTTP layer `/v1/troubleshoot` is served through —
+   had zero test coverage and no exception handling.** All 125 original tests
+   exercised `enrichment.py`/`cache.py`/`pipeline.py` directly; none went
+   through a real HTTP request. Combined with no `try/except` anywhere in
+   `api.py`/`pipeline.py`, any exception that slipped through downstream logic
+   (a bug the unit tests don't happen to construct, or — once Member B/C wire
+   their stages in — Stage 1/2 raising on unexpected input) would have reached
+   a judge as FastAPI's default response: a raw Python traceback with file
+   paths and source lines, on the team's actual deliverable endpoint. Fixed
+   with a global `@app.exception_handler(Exception)` that logs server-side and
+   returns a clean, bounded `{"error": "internal_error", "detail": ...}` JSON
+   body instead, plus `tests/test_api.py` (9 tests) exercising every route
+   through FastAPI's `TestClient` — happy path, malformed/missing fields
+   (already clean 422s via Pydantic, confirmed rather than assumed), an empty
+   query, and a forced exception proving the handler actually strips
+   internals from the response (`test_unhandled_exception_returns_clean_500_not_a_raw_traceback`).
+10. **`SemanticCache` had no concurrency guard.** `put()` does several
+   sequential, non-atomic mutations (`_entries.append`, `_pending.append`,
+   `_row_entry`/`_row_device.extend`, and occasionally `_evict_oldest`
+   rebuilding `_matrix` from scratch), and `get()` calls `_flush_pending()`
+   which mutates `_matrix` too — two threads racing through either could
+   interleave those steps and leave the index internally inconsistent,
+   corrupting lookups beyond just the concurrent request. Previously
+   disclosed as a known gap rather than fixed ("fine for the hackathon's
+   demo/eval harness"); fixed now with a `threading.Lock` guarding `put()`,
+   `get()`, and `__len__()`, and locked in by
+   `test_concurrent_put_and_get_do_not_corrupt_the_index` (8 writer threads +
+   3 reader threads hammering one cache, then verifying every entry actually
+   written is still independently findable).
 
 **Known remaining limitations**:
 
@@ -382,6 +440,10 @@ doesn't forbid extra top-level keys.
   provider is configured) rather than guessing a specific one it was
   never told about (by design — no hallucinated symptom).
 - The cache's brute-force-at-scale numbers above assume a single
-  process/thread; it isn't thread-lock-protected for concurrent writes.
-  Fine for the hackathon's demo/eval harness; flag if the real deployment
-  needs concurrent request handling.
+  process; a `threading.Lock` now guards `put()`/`get()`/`__len__()` against
+  corruption from concurrent requests (see bug #10 above and
+  `test_concurrent_put_and_get_do_not_corrupt_the_index`), but the lock
+  serializes those calls, so it doesn't help *throughput* under heavy
+  concurrent load — only correctness. Fine for the hackathon's demo/eval
+  harness; a real deployment with sustained concurrent traffic would want a
+  sharded or read-write lock instead of one global one.
