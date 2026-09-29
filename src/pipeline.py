@@ -100,6 +100,7 @@ from embeddings import TfidfEmbedder
 from enrichment import EnrichmentResult, enrich
 from llm_client import get_llm_client
 from schema import ContextDeeplinkResponse
+from structure_extraction import structure_extraction
 
 # -- Member B / Member C extension points --------------------------------
 # Signature each stage must implement. `enrichment` is passed through so
@@ -129,7 +130,7 @@ class Pipeline:
     def __init__(
         self,
         cache: Optional[SemanticCache] = None,
-        stage1_fn: Stage1Fn = _stage1_not_wired,
+        stage1_fn: Stage1Fn = structure_extraction,
         stage2_fn: Stage2Fn = _stage2_not_wired,
         llm_client=None,
     ):
