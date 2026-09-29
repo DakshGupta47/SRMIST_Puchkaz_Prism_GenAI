@@ -287,7 +287,6 @@ class _TimeoutGuardedClient(LLMClient):
                  memo_max_entries: int = _LLM_MEMO_MAX_ENTRIES):
         self._inner = inner
         self._timeout = timeout_seconds
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._memo: dict = {}
         self._memo_max = memo_max_entries
 
@@ -295,12 +294,22 @@ class _TimeoutGuardedClient(LLMClient):
         key = (system_prompt, user_prompt)
         if key in self._memo:
             return self._memo[key]
-        future = self._executor.submit(self._inner.complete, system_prompt, user_prompt)
-        text = future.result(timeout=self._timeout)  # raises TimeoutError past the deadline
-        if len(self._memo) >= self._memo_max:
-            self._memo.pop(next(iter(self._memo)))  # dicts keep insertion order -> FIFO
-        self._memo[key] = text
-        return text
+
+        # Use a fresh executor per call, not a shared one with max_workers=1.
+        # If max_workers=1 is shared, a single timed-out call abandons its task
+        # on that one worker, permanently starving all subsequent calls.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(self._inner.complete, system_prompt, user_prompt)
+            text = future.result(timeout=self._timeout)  # raises TimeoutError past the deadline
+            if len(self._memo) >= self._memo_max:
+                self._memo.pop(next(iter(self._memo)))  # dicts keep insertion order -> FIFO
+            self._memo[key] = text
+            return text
+        finally:
+            # wait=False prevents blocking here if the task is still hanging
+            executor.shutdown(wait=False, cancel_futures=True)
+
 
     @property
     def model_name(self) -> str:

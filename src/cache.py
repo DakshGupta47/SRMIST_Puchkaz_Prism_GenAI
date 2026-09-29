@@ -15,12 +15,7 @@ either — exactly what Stage 0's query_variations exist to cover).
 Instead:
 
   * every canonical query + its variations is embedded (embeddings.py)
-    and every embedding is L2-normalized and stamped with a compact
-    `semantic_cache_key` — a random-hyperplane SimHash of the vector —
-    so near-duplicate phrasings collide onto the same short key even
-    though the raw strings differ. That key is what identifies a cache
-    "slot" semantically; it's exposed on `CacheResult`/entries for
-    logging, dedup stats, or a future exact-bucket index.
+    and every embedding is L2-normalized.
   * matching itself is done with one vectorized sparse dot product across
     every stored (normalized) vector at once — because vectors are
     pre-normalized, that dot product IS cosine similarity, so this scales
