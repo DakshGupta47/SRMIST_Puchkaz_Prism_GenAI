@@ -155,6 +155,34 @@ _SYNONYM_GROUPS = {
     "shattered",
     "broken",
     },
+    # freeze/update end in a silent "e" so suffix stripping produces
+    # "freez"/"updat" — neither matches the signal word. Explicit synonym
+    # groups restore all inflected forms to the canonical token.
+    "freeze": {
+        "freeze",
+        "freezes",
+        "freezing",
+        "frozen",
+        "froze",
+        "hang",
+        "hangs",
+        "hanging",
+        "hung",
+        "unresponsive",
+        "stuck",
+    },
+    "update": {
+        "update",
+        "updates",
+        "updating",
+        "updated",
+        "upgrade",
+        "upgrades",
+        "upgrading",
+        "upgraded",
+        "firmware",
+        "patch",
+    },
 }
 
 
