@@ -100,6 +100,7 @@ from embeddings import TfidfEmbedder
 from enrichment import EnrichmentResult, enrich
 from llm_client import get_llm_client
 from schema import ContextDeeplinkResponse
+from scrubber import scrub_response
 from structure_extraction import structure_extraction
 
 # -- Member B / Member C extension points --------------------------------
@@ -210,6 +211,7 @@ class Pipeline:
         # On free tier: 0.0. On paid: adds their costs to Stage 0's cost above.
         cost_usd += client.consume_cost()
         response_dict = final.model_dump()
+        response_dict = scrub_response(response_dict)
 
         if self.stage2_fn is _stage2_not_wired:
             response_dict["deeplinks_pending"] = True
@@ -223,7 +225,14 @@ class Pipeline:
         # response_dict before caching so a later cache HIT on this same
         # (rare — see the confidence gate below) entry still carries it.
         if not response_dict.get("contexts"):
-            response_dict["fallback"] = "no_match" if siis_response else "no_siis_context"
+            has_siis = bool(
+                siis_response
+                and (
+                    not isinstance(siis_response, dict)
+                    or any(str(v).strip() for v in siis_response.values())
+                )
+            )
+            response_dict["fallback"] = "no_match" if has_siis else "no_siis_context"
 
         # Stage 3 (write path) — same confidence gate as the read path,
         # otherwise this is exactly what would poison the cache with a

@@ -31,13 +31,17 @@ def load_data():
 @pytest.mark.integration
 def test_stage1_all_records(monkeypatch):
     load_dotenv()
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        import pytest
+        pytest.skip("GOOGLE_API_KEY not configured in environment")
 
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         pytest.skip("GOOGLE_API_KEY not set — skipping integration test")
 
-    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GOOGLE_API_KEY", api_key)
+
 
     import llm_client
     llm_client._client_cache.clear()

@@ -119,3 +119,190 @@ def test_unhandled_exception_returns_clean_500_not_a_raw_traceback(client, monke
     assert "Traceback" not in r.text
     assert "simulated Stage 1/2 failure" not in r.text
     assert "enrichment.py" not in r.text and "pipeline.py" not in r.text
+
+
+def test_troubleshoot_integration_sample_from_input_with_matching_siis_record(client):
+    """Integration test: post a sample from data/input.txt with a matching record
+    from data/siis_responses.json to POST /v1/troubleshoot, and assert non-empty
+    contexts and full schema validity with Stage 2 stub deeplinks attached.
+    """
+    import json
+    from pathlib import Path
+    from schema import ContextDeeplinkResponse, actionCategory
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    with open(data_dir / "input.txt", "r", encoding="utf-8") as f:
+        input_lines = [line.strip() for line in f if line.strip()]
+
+    with open(data_dir / "siis_responses.json", "r", encoding="utf-8") as f:
+        siis_data = json.load(f)
+
+    # Sample from data/input.txt with matching record in data/siis_responses.json (row_21)
+    matching_row = next(r for r in siis_data["responses"] if r["id"] == "row_21")
+    sample_query = matching_row["original_query"]
+    assert sample_query in input_lines
+
+    r = client.post(
+        "/v1/troubleshoot",
+        json={"query": sample_query, "siis_response": matching_row["siis_response"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+
+    # Assert non-empty contexts
+    contexts = body["response"]["contexts"]
+    assert len(contexts) > 0
+
+    # Assert schema validity via Pydantic model
+    validated = ContextDeeplinkResponse.model_validate(body["response"])
+    assert len(validated.contexts) == len(contexts)
+
+    for context in validated.contexts:
+        assert context.goal.startswith("Follow these steps to perform this ")
+        assert 2 <= len(context.title.split()) <= 3
+        assert 0.0 <= context.score <= 1.0
+        assert len(context.actions) > 0
+        for action in context.actions:
+            assert action.actionName
+            assert action.description.startswith("It will")
+            assert 5 <= len(action.description.split()) <= 7
+            assert action.category in (actionCategory.manual, actionCategory.critical)
+            assert len(action.stepGroups) > 0
+            for group in action.stepGroups:
+                assert len(group.steps) > 0
+                assert group.actionableDeeplink is not None
+                assert group.actionableDeeplink.deeplink == "bixby://dummy_positive"
+
+
+def test_troubleshoot_empty_contexts_fallback_no_match_when_siis_given(client, monkeypatch):
+    """Verify that an empty-contexts result carries fallback 'no_match' when siis_response is given."""
+    from schema import ContextDeeplinkResponse
+
+    # Simulate Stage 1 finding no matching procedure from reference data
+    monkeypatch.setattr(api.pipeline, "stage1_fn", lambda siis, enrich: ContextDeeplinkResponse(contexts=[]))
+
+    r = client.post(
+        "/v1/troubleshoot",
+        json={
+            "query": "My phone is acting strange",
+            "siis_response": {"title": "General Info", "content": "Irrelevant reference content."},
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["response"]["contexts"] == []
+    assert body["response"]["fallback"] == "no_match"
+
+
+def test_troubleshoot_empty_contexts_fallback_no_siis_context_when_no_siis(client):
+    """Verify that an empty-contexts result carries fallback 'no_siis_context' when no siis_response is provided."""
+    # 1. Without siis_response field
+    r1 = client.post("/v1/troubleshoot", json={"query": "My phone battery drains very quickly"})
+    assert r1.status_code == 200
+    body1 = r1.json()
+    assert body1["response"]["contexts"] == []
+    assert body1["response"]["fallback"] == "no_siis_context"
+
+    # 2. With siis_response set to None
+    r2 = client.post(
+        "/v1/troubleshoot",
+        json={"query": "My phone battery drains very quickly", "siis_response": None},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["response"]["contexts"] == []
+    assert r2.json()["response"]["fallback"] == "no_siis_context"
+
+    # 3. With empty title and content
+    r3 = client.post(
+        "/v1/troubleshoot",
+        json={"query": "My phone battery drains very quickly", "siis_response": {"title": "", "content": ""}},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["response"]["contexts"] == []
+    assert r3.json()["response"]["fallback"] == "no_siis_context"
+
+
+def test_global_exception_handler_returns_clean_json_with_no_traceback(client, monkeypatch):
+    """Confirm the global exception handler catches exceptions and returns clean JSON with no traceback."""
+    def _explode(*args, **kwargs):
+        raise ValueError("simulated internal engine crash with sensitive file path secret/path.py")
+
+    monkeypatch.setattr(api.pipeline, "run", _explode)
+    r = client.post("/v1/troubleshoot", json={"query": "My screen won't turn on."})
+    assert r.status_code == 500
+    assert r.headers["content-type"] == "application/json"
+    body = r.json()
+    assert body == {
+        "error": "internal_error",
+        "detail": "An unexpected error occurred while processing the request.",
+    }
+    assert "Traceback" not in r.text
+    assert "simulated internal engine crash" not in r.text
+    assert "secret/path.py" not in r.text
+    assert "Traceback (most recent call last)" not in r.text
+
+
+def test_troubleshoot_request_timeout_guard_prevents_hang(client, monkeypatch):
+    """Verify that a request taking longer than REQUEST_TIMEOUT_SECONDS triggers the timeout guard and never hangs."""
+    import time
+
+    def _slow_run(*args, **kwargs):
+        time.sleep(0.3)
+        return {"query": "slow", "response": {"contexts": []}}
+
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setattr(api.pipeline, "run", _slow_run)
+
+    start_time = time.perf_counter()
+    r = client.post("/v1/troubleshoot", json={"query": "Slow hanging query"})
+    elapsed = time.perf_counter() - start_time
+
+    assert r.status_code == 504
+    assert elapsed < 0.25  # Aborted promptly, did not hang
+    body = r.json()
+    assert body["error"] == "timeout"
+    assert "timed out" in body["detail"]
+    assert "Traceback" not in r.text
+
+
+def test_troubleshoot_cache_hit_returns_under_300ms(client):
+    """Confirm the cache-hit path returns in 300ms or less via TestClient."""
+    import time
+    from pipeline import Pipeline
+
+    fresh_pipeline = Pipeline()
+    original_pipeline = api.pipeline
+    api.pipeline = fresh_pipeline
+    try:
+        query = "My Galaxy S22 battery drains extremely fast, dead by noon even with light use."
+        payload = {
+            "query": query,
+            "siis_response": {"title": "Battery Drain", "content": "Check Battery usage in device Settings."},
+        }
+
+        # Request 1: Warm the cache (cold miss)
+        r1 = client.post("/v1/troubleshoot", json=payload)
+        assert r1.status_code == 200
+        body1 = r1.json()
+        assert body1["meta"]["cache_hit"] is False
+        assert len(fresh_pipeline.cache) == 1
+
+        # Request 2: Repeat query -> Cache hit
+        t0 = time.perf_counter()
+        r2 = client.post("/v1/troubleshoot", json=payload)
+        round_trip_ms = (time.perf_counter() - t0) * 1000
+
+        assert r2.status_code == 200
+        body2 = r2.json()
+        assert body2["meta"]["cache_hit"] is True
+        assert body2["meta"]["similarity"] is not None
+        assert body2["meta"]["cost_usd"] == 0.0
+
+        # Assert internal pipeline latency is <= 300ms
+        assert body2["meta"]["latency_ms"] <= 300.0, f"Cache-hit latency was {body2['meta']['latency_ms']}ms > 300ms"
+        # Assert full HTTP round-trip latency is <= 300ms
+        assert round_trip_ms <= 300.0, f"Full HTTP round-trip was {round_trip_ms}ms > 300ms"
+    finally:
+        api.pipeline = original_pipeline
+
+

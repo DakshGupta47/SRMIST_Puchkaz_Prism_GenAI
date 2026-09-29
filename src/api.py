@@ -16,7 +16,9 @@ Endpoints:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import logging
+import os
 from typing import Optional
 
 from fastapi import FastAPI, Request
@@ -25,11 +27,16 @@ from pydantic import BaseModel
 
 from enrichment import enrich
 from pipeline import Pipeline
+from stage2_deeplinks import map_deeplinks
+from structure_extraction import structure_extraction
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Smart Guided Troubleshooting Engine — Member A slice")
-pipeline = Pipeline()
+pipeline = Pipeline(
+    stage1_fn=structure_extraction,
+    stage2_fn=map_deeplinks,
+)
 
 
 @app.exception_handler(Exception)
@@ -66,10 +73,30 @@ class EnrichRequest(BaseModel):
     query: str
 
 
+DEFAULT_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30.0"))
+_PIPELINE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+
+
 @app.post("/v1/troubleshoot")
 def troubleshoot(req: TroubleshootRequest) -> dict:
     siis_response = req.siis_response.model_dump() if req.siis_response else {}
-    return pipeline.run(req.query, siis_response)
+    if isinstance(siis_response, dict) and not any(str(v).strip() for v in siis_response.values()):
+        siis_response = {}
+
+    timeout = float(os.getenv("REQUEST_TIMEOUT_SECONDS", str(DEFAULT_REQUEST_TIMEOUT_SECONDS)))
+
+    future = _PIPELINE_EXECUTOR.submit(pipeline.run, req.query, siis_response)
+    try:
+        return future.result(timeout=timeout)
+    except (TimeoutError, concurrent.futures.TimeoutError):
+        logger.error("Request timed out in /v1/troubleshoot after %ss", timeout)
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": "timeout",
+                "detail": f"Request processing timed out after {timeout}s.",
+            },
+        )
 
 
 @app.post("/v1/enrich")

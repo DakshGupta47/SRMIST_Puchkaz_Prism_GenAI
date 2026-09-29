@@ -35,6 +35,10 @@ def load_row(row_id: str):
 @pytest.mark.integration
 def test_stage1_row21(monkeypatch):
     load_dotenv()
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        import pytest
+        pytest.skip("GOOGLE_API_KEY not configured in environment")
 
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -42,6 +46,7 @@ def test_stage1_row21(monkeypatch):
 
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GOOGLE_API_KEY", api_key)
+
 
     # Clear the cached client because conftest.py deliberately resets it.
     import llm_client
