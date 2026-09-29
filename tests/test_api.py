@@ -166,12 +166,15 @@ def test_troubleshoot_integration_sample_from_input_with_matching_siis_record(cl
             assert action.actionName
             assert action.description.startswith("It will")
             assert 5 <= len(action.description.split()) <= 7
-            assert action.category in (actionCategory.manual, actionCategory.critical)
+            assert action.category in (actionCategory.auto, actionCategory.manual, actionCategory.critical)
             assert len(action.stepGroups) > 0
             for group in action.stepGroups:
                 assert len(group.steps) > 0
-                assert group.actionableDeeplink is not None
-                assert group.actionableDeeplink.deeplink == "bixby://dummy_positive"
+                if action.category == actionCategory.auto:
+                    assert group.actionableDeeplink is not None
+                    assert group.actionableDeeplink.deeplink == "bixby://dummy_positive"
+                else:
+                    assert group.actionableDeeplink is None
 
 
 def test_troubleshoot_empty_contexts_fallback_no_match_when_siis_given(client, monkeypatch):

@@ -33,16 +33,19 @@ def map_deeplinks(
 
     for context in result.contexts:
         for action in context.actions:
-            # If category would require a real deeplink ('auto'), fall back to 'manual'.
-            if action.category == actionCategory.auto:
-                action.category = actionCategory.manual
-            elif action.category is None:
+            # If the LLM left category as None, default to manual.
+            if action.category is None:
                 action.category = actionCategory.manual
 
-            for group in action.stepGroups:
-                group.actionableDeeplink = Deeplink(
-                    deeplink="bixby://dummy_positive",
-                    description="Stub deeplink for automated execution",
-                )
+            # Only 'auto' actions are allowed to carry an actionableDeeplink.
+            if action.category == actionCategory.auto:
+                for group in action.stepGroups:
+                    group.actionableDeeplink = Deeplink(
+                        deeplink="bixby://dummy_positive",
+                        description="Stub deeplink for automated execution",
+                    )
+            else:
+                for group in action.stepGroups:
+                    group.actionableDeeplink = None
 
     return result
