@@ -46,6 +46,13 @@ except ImportError:
 class LLMClient(ABC):
     """Minimal interface: give it a task, get raw text back."""
 
+    def __new__(cls, *args, **kwargs):
+        instance = super().__new__(cls)
+        instance._cost_usd = 0.0
+        import threading
+        instance._cost_lock = threading.Lock()
+        return instance
+
     @abstractmethod
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         ...
@@ -79,9 +86,10 @@ class LLMClient(ABC):
         theoretical paid-tier cost, which auto-activates when you switch
         from free to paid without any code change).
         """
-        total = getattr(self, "_cost_usd", 0.0)
-        self._cost_usd = 0.0
-        return total
+        with self._cost_lock:
+            total = self._cost_usd
+            self._cost_usd = 0.0
+            return total
 
     def _record_usage(self, prompt_tokens: int, completion_tokens: int,
                       rate_in: float, rate_out: float) -> None:
@@ -96,9 +104,9 @@ class LLMClient(ABC):
         one pipeline request sum correctly before consume_cost() drains them.
         Never raises; cost stays at 0.0 if the provider doesn't return usage.
         """
-        self._cost_usd = getattr(self, "_cost_usd", 0.0) + (
-            prompt_tokens * rate_in + completion_tokens * rate_out
-        )
+        with self._cost_lock:
+            self._cost_usd += (prompt_tokens * rate_in + completion_tokens * rate_out)
+
 
 
 class MockLLMClient(LLMClient):
