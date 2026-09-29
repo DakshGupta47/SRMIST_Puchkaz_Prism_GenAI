@@ -26,10 +26,12 @@ from pydantic import BaseModel
 from enrichment import enrich
 from pipeline import Pipeline
 
+from deeplink_mapping import deeplink_mapping
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Smart Guided Troubleshooting Engine — Member A slice")
-pipeline = Pipeline()
+pipeline = Pipeline(stage2_fn=deeplink_mapping)
 
 
 @app.exception_handler(Exception)
