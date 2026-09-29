@@ -194,16 +194,19 @@ def test_unsupported_step_is_rejected():
         )
     }
 
-    with pytest.raises(
-        ValueError,
-        match="Step is not sufficiently grounded in source",
-    ):
-        structure_extraction(
-            source,
-            enrich("display flickering"),
-            llm_client=HallucinatingLLM(),
-        )
-        
+    # Hallucinated step ("Replace the motherboard") is not in the source text.
+    # structure_extraction should catch the validation error and return empty
+    # contexts (§4.2.3 — no crash, graceful degradation). The error is still
+    # printed to stdout for debugging.
+    result = structure_extraction(
+        source,
+        enrich("display flickering"),
+        llm_client=HallucinatingLLM(),
+    )
+    assert result.contexts == [], (
+        "Hallucinated steps should produce empty contexts, not crash"
+    )
+
 def test_irrelevant_reference_is_rejected_before_llm():
 
     class ExplodingLLM(LLMClient):

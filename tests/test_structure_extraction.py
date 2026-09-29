@@ -50,11 +50,13 @@ def test_structure_extraction():
     siis_response = {
         "title": "Display troubleshooting",
         "content": """
+        If your screen is flickering or the display blinks, try these steps.
         Open Settings.
         Tap Display.
         Check the display settings.
         """
     }
+
 
     enrichment = enrich(
         "my phone screen is flickering"

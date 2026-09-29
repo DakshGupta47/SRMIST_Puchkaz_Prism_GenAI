@@ -106,7 +106,7 @@ from structure_extraction import structure_extraction
 # Signature each stage must implement. `enrichment` is passed through so
 # later stages can use the canonical query / device / variations without
 # re-deriving them.
-Stage1Fn = Callable[[dict, EnrichmentResult], ContextDeeplinkResponse]
+Stage1Fn = Callable[..., ContextDeeplinkResponse]  # (siis_response, enrichment, *, llm_client=None)
 Stage2Fn = Callable[[ContextDeeplinkResponse, EnrichmentResult], ContextDeeplinkResponse]
 
 
@@ -193,7 +193,18 @@ class Pipeline:
             }
 
         # Stage 1 + Stage 2 (Member B / Member C)
-        structured = self.stage1_fn(siis_response, enrichment)
+        # Pass the shared client so Stage 1's LLM tokens accumulate into
+        # the same consume_cost() counter as Stage 0's tokens above.
+        # Pass the shared client to Stage 1 if it accepts it, so its LLM
+        # tokens accumulate into the same consume_cost() counter as Stage 0.
+        # Falls back gracefully for test stubs that don't take llm_client.
+        import inspect as _inspect
+        _s1_params = _inspect.signature(self.stage1_fn).parameters
+        _s1_kwargs = {"llm_client": client} if "llm_client" in _s1_params or any(
+            p.kind == _inspect.Parameter.VAR_KEYWORD for p in _s1_params.values()
+        ) else {}
+        structured = self.stage1_fn(siis_response, enrichment, **_s1_kwargs)
+
         final = self.stage2_fn(structured, enrichment)
         # Drain any tokens Stage 1/2 spent (Member B/C call client.complete() here).
         # On free tier: 0.0. On paid: adds their costs to Stage 0's cost above.

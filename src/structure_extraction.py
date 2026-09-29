@@ -689,6 +689,6 @@ Return JSON only.
             f"\n[Stage 1] extraction failed: "
             f"{type(exc).__name__}: {exc}"
         )
-
-        raise
-        
+        # §4.2.3: on any failure, return an empty list — not a crash.
+        # The pipeline will attach "fallback": "no_match" automatically.
+        return ContextDeeplinkResponse(contexts=[])
