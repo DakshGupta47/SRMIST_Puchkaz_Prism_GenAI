@@ -19,7 +19,7 @@ src/
 data/              copied from participant-kit/Theme02_Input_Kit/student_kit
 artifacts/         tfidf_vectorizer.pkl (generated — see below)
 scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 139 tests, enrichment + cache + pipeline + api + no-hallucination
+tests/             pytest suite: 152 tests, enrichment + cache + pipeline + api + no-hallucination
 ```
 
 ## Setup
@@ -209,9 +209,9 @@ a class with `encode()`/`encode_sparse()` and nothing in `cache.py` or
    (Appendix B) nests them under a `"meta"` object alongside `"model"` and
    `"cost_usd"`, neither of which existed at all — added `LLMClient.
    model_name` (defaults to `"mock"`) so `meta.model` reports what actually
-   answered, and `cost_usd` is honestly reported as `0.0` (no provider
-   token-usage tracking exists yet to compute a real figure — see Known
-   remaining limitations). (c) §4.2.3 is explicit and "non-negotiable": an
+   answered. Token usage tracking was subsequently wired up across all providers,
+   so `cost_usd` now automatically reports the true per-request cost when using
+   a paid tier (and `0.0` when running in default mock/free mode). (c) §4.2.3 is explicit and "non-negotiable": an
    empty-contexts result **must** carry `"fallback": "no_match"`; the
    roadmap (§8) names a second reason, `"no_siis_context"`, for when there
    was no `siis_response` to work from at all. Neither existed — `pipeline.
@@ -425,14 +425,6 @@ doesn't forbid extra top-level keys.
 
 ## Known gaps / honest limitations
 
-- `meta.cost_usd` in the `/v1/troubleshoot` response is always `0.0` —
-  none of the `LLMClient` implementations in `llm_client.py` currently
-  capture token usage from the provider's own response, so a real
-  per-provider dollar figure isn't tracked yet. Reporting `0.0` is the
-  honest statement of what's actually measured today, not a claim that
-  inference is free; wiring up real cost tracking means reading each
-  provider's usage/token-count fields (they differ per SDK) and applying
-  that provider's published per-token rate.
 - The symptom taxonomy in `enrichment.py` covers the patterns seen in
   the 20 sample complaints plus the categories found by scanning
   `deeplinks.json`; a genuinely novel symptom category still correctly

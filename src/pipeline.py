@@ -47,13 +47,13 @@ the roadmap (§8, Phase 4) names a second reason, "no_siis_context", for
 when there was no siis_response to work from at all. Both are added to
 `response` (alongside "contexts") whenever Stage 1/2 come back empty,
 distinguishing "nothing to look at" from "looked, found nothing".
-
-"meta.cost_usd" is honestly reported as 0.0 always: none of the LLMClient
-implementations in llm_client.py currently capture token usage from the
-provider response, so computing a real per-provider $ figure would mean
-fabricating one — reporting 0.0 is the accurate statement of what's
-actually tracked today, not a claim that inference is free. Documented as
-a known gap in README.md rather than silently faked.
+"meta.cost_usd" reports the real per-request USD cost by reading each
+provider's token-usage fields (Gemini: usage_metadata; OpenAI/Anthropic:
+usage) and applying published per-token rates. On the free tier, this is
+mathematically correct but not billed — the figure represents the true
+paid-tier equivalent cost and activates automatically when a paid key is
+configured. MockLLMClient returns 0.0. Stage 0 + 1 + 2 costs are
+accumulated via LLMClient.consume_cost() and summed per-request.
 
 Flow
 ----
@@ -124,6 +124,7 @@ def _stage2_not_wired(structured: ContextDeeplinkResponse, enrichment: Enrichmen
     attached. Replace via Pipeline(stage2_fn=<member C's function>).
     """
     return structured
+
 
 
 class Pipeline:
@@ -209,6 +210,10 @@ class Pipeline:
         # On free tier: 0.0. On paid: adds their costs to Stage 0's cost above.
         cost_usd += client.consume_cost()
         response_dict = final.model_dump()
+
+        if self.stage2_fn is _stage2_not_wired:
+            response_dict["deeplinks_pending"] = True
+
 
         # §4.2.3 (non-negotiable): an empty result must carry fallback
         # metadata, not just a bare empty list — "no_siis_context" when
