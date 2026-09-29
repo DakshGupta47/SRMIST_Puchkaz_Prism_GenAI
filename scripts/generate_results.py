@@ -42,11 +42,11 @@ if str(ROOT_DIR) not in sys.path:
 
 try:
     from src.pipeline import Pipeline
-    from src.stage2_deeplinks import map_deeplinks
+    from src.deeplink_mapping import deeplink_mapping
     from src.structure_extraction import structure_extraction
 except ImportError:
     from pipeline import Pipeline  # type: ignore[no-redef]  # noqa: E402
-    from stage2_deeplinks import map_deeplinks  # type: ignore[no-redef]  # noqa: E402
+    from deeplink_mapping import deeplink_mapping 
     from structure_extraction import structure_extraction  # type: ignore[no-redef]  # noqa: E402
 
 
@@ -119,7 +119,7 @@ def generate_results(
 ) -> dict[str, Any]:
     pipeline = Pipeline(
         stage1_fn=structure_extraction,
-        stage2_fn=map_deeplinks,
+        stage2_fn=deeplink_mapping,
     )
 
     input_queries = _load_lines(input_file)
