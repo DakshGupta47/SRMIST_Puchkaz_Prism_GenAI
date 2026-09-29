@@ -14,9 +14,15 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from enrichment import enrich
-from llm_client import get_llm_client
-from structure_extraction import structure_extraction
+try:
+    from src.enrichment import enrich
+    from src.llm_client import get_llm_client
+    from src.structure_extraction import structure_extraction
+except ImportError:
+    from enrichment import enrich  # type: ignore[no-redef]  # noqa: E402
+    from llm_client import get_llm_client  # type: ignore[no-redef]  # noqa: E402
+    from structure_extraction import structure_extraction  # type: ignore[no-redef]  # noqa: E402
+
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +49,11 @@ def test_stage1_all_records(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", api_key)
 
 
-    import llm_client
+    try:
+        from src import llm_client
+    except ImportError:
+        import llm_client  # type: ignore[no-redef]
+
     llm_client._client_cache.clear()
 
     data = load_data()
