@@ -7,7 +7,7 @@ uvicorn
 pytest
 httpx            # required by fastapi.testclient.TestClient (tests/test_api.py)
 python-dotenv   # loads .env for LLM_PROVIDER/API keys; harmless no-op if no .env exists
-
+google-generativeai
 # Optional, only needed if you set LLM_PROVIDER to one of these in Stage 0:
 # google-generativeai   # LLM_PROVIDER=gemini
 # openai                # LLM_PROVIDER=openai

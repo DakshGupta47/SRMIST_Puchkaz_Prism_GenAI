@@ -87,9 +87,9 @@ class MockLLMClient(LLMClient):
 # every request's critical path (see pipeline.py's module docstring), an
 # unbounded hang is far worse than a clean, fast failure into the mock
 # fallback — it would silently blow the "fast" requirement instead of
-# visibly degrading quality. 8 seconds is generous for a short paraphrase/
+# visibly degrading quality. 30 seconds is generous for a short paraphrase/
 # classification call but short enough that a hung provider can't matter.
-_LLM_TIMEOUT_SECONDS = 8
+_LLM_TIMEOUT_SECONDS = 30
 
 # §6 grades "Deterministic Execution: consistent action plans for identical or
 # semantically identical inputs". Every real provider is therefore called at
