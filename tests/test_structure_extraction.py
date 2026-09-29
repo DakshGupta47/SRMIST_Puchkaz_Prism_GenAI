@@ -1,8 +1,14 @@
 import json
 
-from enrichment import enrich
-from llm_client import LLMClient
-from structure_extraction import structure_extraction
+try:
+    from src.enrichment import enrich
+    from src.llm_client import LLMClient
+    from src.structure_extraction import structure_extraction
+except ImportError:
+    from enrichment import enrich  # type: ignore[no-redef]  # noqa: E402
+    from llm_client import LLMClient  # type: ignore[no-redef]  # noqa: E402
+    from structure_extraction import structure_extraction  # type: ignore[no-redef]  # noqa: E402
+
 
 
 class FakeStage1LLM(LLMClient):
@@ -51,6 +57,7 @@ def test_structure_extraction():
         "title": "Display troubleshooting",
         "content": """
         If your screen is flickering or the display blinks, try these steps.
+
         Open Settings.
         Tap Display.
         Check the display settings.

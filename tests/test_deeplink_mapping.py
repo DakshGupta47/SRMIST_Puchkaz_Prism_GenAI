@@ -120,6 +120,9 @@ def test_critical_action_never_gets_a_deeplink():
 
     assert step_group.actionableDeeplink is None
 
+    assert step_group.actionableDeeplink is None
+    assert step_group.validationDeeplink is None   # add this line
+
 
 def test_manual_action_without_settings_steps_stays_unlinked():
     action = Action(
@@ -138,3 +141,24 @@ def test_manual_action_without_settings_steps_stays_unlinked():
     step_group = result.contexts[0].actions[0].stepGroups[0]
 
     assert step_group.actionableDeeplink is None
+
+def test_manual_action_with_settings_steps_gets_no_deeplink():
+    action = Action(
+        actionName="Touch Sensitivity Settings",
+        description="It will adjust touch sensitivity options.",
+        category=actionCategory.manual,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap Display.",
+                    "Tap the switch next to Touch sensitivity.",
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    step_group = result.contexts[0].actions[0].stepGroups[0]
+
+    assert step_group.actionableDeeplink is None
+    assert step_group.validationDeeplink is None

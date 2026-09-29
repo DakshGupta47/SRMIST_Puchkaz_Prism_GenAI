@@ -122,6 +122,61 @@ class MockLLMClient(LLMClient):
     """
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
+        if "Structure Extraction" in system_prompt or "Goal" in system_prompt:
+            import json
+            import re
+
+            title_m = re.search(r"Title:\s*\n?([^\n]+)", user_prompt)
+            content_m = re.search(r"Content:\s*\n?([\s\S]+?)(?=\nThe reference|\nExtract|\nReturn|\Z)", user_prompt)
+            title_text = title_m.group(1).strip() if title_m else "Device"
+            content_text = content_m.group(1).strip() if content_m else "Check Settings."
+
+            words = re.findall(r"\b[\w'-]+\b", title_text)
+            if 2 <= len(words) <= 3:
+                topic = " ".join(words[:2])
+                title = " ".join(words)
+            elif len(words) >= 4:
+                topic = " ".join(words[:2])
+                title = " ".join(words[:2])
+            else:
+                topic = words[0] if words else "Device"
+                title = f"{topic} Troubleshooting"
+
+            steps = []
+            for line in content_text.splitlines():
+                clean = line.strip().lstrip("#").strip()
+                if clean and len(clean) > 5 and not clean.startswith("http"):
+                    steps.append(clean)
+                    if len(steps) >= 2:
+                        break
+            if not steps:
+                steps = [content_text.splitlines()[0].strip() if content_text.splitlines() else "Open Settings."]
+
+            mock_response = {
+                "contexts": [
+                    {
+                        "goal": f"Follow these steps to perform this {topic} Troubleshooting",
+                        "title": title,
+                        "score": 0.9,
+                        "actions": [
+                            {
+                                "actionName": f"{topic} Settings",
+                                "description": "It will check device settings.",
+                                "stepGroups": [
+                                    {
+                                        "steps": steps,
+                                        "actionableDeeplink": None,
+                                        "validationDeeplink": None,
+                                    }
+                                ],
+                                "category": "auto",
+                            }
+                        ],
+                    }
+                ]
+            }
+            return json.dumps(mock_response)
+
         return user_prompt
 
 

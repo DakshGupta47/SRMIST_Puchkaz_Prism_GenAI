@@ -59,8 +59,12 @@ def deeplink_mapping(
     for goal in structured.contexts:
         for action in goal.actions:
             for step_group in action.stepGroups:
-                if action.category == actionCategory.critical:
-                    continue  # no deeplink by design
+                if action.category != actionCategory.auto:
+                    # Only auto actions may carry deeplinks (manual is a schema rule;
+                    # critical is our design choice).
+                    step_group.actionableDeeplink = None
+                    step_group.validationDeeplink = None
+                    continue
                 query_text = " ".join(step_group.steps)
                 match, score = _best_match(query_text)
                 if score >= SIMILARITY_THRESHOLD:
@@ -71,6 +75,6 @@ def deeplink_mapping(
                         originalType=match.get("originalType"),
                     )
                     step_group.validationDeeplink = _to_validation_deeplink(match)
-                elif action.category == actionCategory.auto:
+                else:
                     step_group.actionableDeeplink = _dummy_positive(query_text)
     return structured

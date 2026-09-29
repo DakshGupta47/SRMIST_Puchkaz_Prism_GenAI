@@ -1,0 +1,23 @@
+# Version control
+.git
+.gitignore
+
+# Virtual environment and caches
+.venv
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+
+# Secrets and local configurations - NEVER bake in
+.env
+.env.*
+!.env.example
+
+# Local evaluation outputs and build artifacts
+results.jsonl
+artifacts/tfidf_vectorizer.pkl
+
+# OS artifacts
+.DS_Store
+Thumbs.db
