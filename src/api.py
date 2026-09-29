@@ -73,8 +73,7 @@ class EnrichRequest(BaseModel):
     query: str
 
 
-DEFAULT_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30.0"))
-_PIPELINE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+DEFAULT_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "70.0"))
 
 
 @app.post("/v1/troubleshoot")
@@ -85,8 +84,13 @@ def troubleshoot(req: TroubleshootRequest) -> dict:
 
     timeout = float(os.getenv("REQUEST_TIMEOUT_SECONDS", str(DEFAULT_REQUEST_TIMEOUT_SECONDS)))
 
-    future = _PIPELINE_EXECUTOR.submit(pipeline.run, req.query, siis_response)
+    # Use a fresh executor per request, not a shared pool. If a request
+    # genuinely hangs past the 70s timeout, a shared pool (like max_workers=8)
+    # would permanently lose a worker to the abandoned task, eventually starving
+    # the API. This mirrors the thread-safety fix in llm_client.py.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
+        future = executor.submit(pipeline.run, req.query, siis_response)
         return future.result(timeout=timeout)
     except (TimeoutError, concurrent.futures.TimeoutError):
         logger.error("Request timed out in /v1/troubleshoot after %ss", timeout)
@@ -97,6 +101,10 @@ def troubleshoot(req: TroubleshootRequest) -> dict:
                 "detail": f"Request processing timed out after {timeout}s.",
             },
         )
+    finally:
+        # wait=False prevents blocking here if the task is still hanging
+        executor.shutdown(wait=False, cancel_futures=True)
+
 
 
 @app.post("/v1/enrich")
