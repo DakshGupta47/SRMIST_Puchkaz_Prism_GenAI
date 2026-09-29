@@ -1,7 +1,17 @@
+"""Integration test — calls the real Gemini API across all 20 SIIS records.
+
+Run only when a valid GOOGLE_API_KEY is present:
+
+    pytest -m integration tests/test_stage1_all_data.py -s
+
+Excluded from the default `pytest` run so the suite stays fast and
+deterministic on machines without an API key configured.
+"""
 import json
 import os
 from pathlib import Path
 
+import pytest
 from dotenv import load_dotenv
 
 from enrichment import enrich
@@ -18,15 +28,16 @@ def load_data():
         return json.load(f)
 
 
+@pytest.mark.integration
 def test_stage1_all_records(monkeypatch):
-
     load_dotenv()
 
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        pytest.skip("GOOGLE_API_KEY not set — skipping integration test")
+
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
-    monkeypatch.setenv(
-        "GOOGLE_API_KEY",
-        os.environ["GOOGLE_API_KEY"],
-    )
+    monkeypatch.setenv("GOOGLE_API_KEY", api_key)
 
     import llm_client
     llm_client._client_cache.clear()

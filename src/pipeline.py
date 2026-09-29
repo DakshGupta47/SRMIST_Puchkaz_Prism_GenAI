@@ -192,18 +192,17 @@ class Pipeline:
                 "enrichment": enrichment_info,
             }
 
-        # Stage 1 + Stage 2 (Member B / Member C)
-        # Pass the shared client so Stage 1's LLM tokens accumulate into
-        # the same consume_cost() counter as Stage 0's tokens above.
-        # Pass the shared client to Stage 1 if it accepts it, so its LLM
-        # tokens accumulate into the same consume_cost() counter as Stage 0.
-        # Falls back gracefully for test stubs that don't take llm_client.
+        # Stage 1 + Stage 2 (Member B / Member C).
+        # Pass llm_client to Stage 1 if it accepts it (so its tokens flow into
+        # consume_cost() alongside Stage 0's). Falls back gracefully for test
+        # stubs that don't declare the kwarg.
         import inspect as _inspect
         _s1_params = _inspect.signature(self.stage1_fn).parameters
         _s1_kwargs = {"llm_client": client} if "llm_client" in _s1_params or any(
             p.kind == _inspect.Parameter.VAR_KEYWORD for p in _s1_params.values()
         ) else {}
         structured = self.stage1_fn(siis_response, enrichment, **_s1_kwargs)
+
 
         final = self.stage2_fn(structured, enrichment)
         # Drain any tokens Stage 1/2 spent (Member B/C call client.complete() here).

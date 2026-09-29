@@ -169,7 +169,8 @@ def _normalize_word(word: str) -> str:
         if word in variants:
             return canonical
 
-    # Small amount of suffix normalization.
+    # Suffix normalization — order matters: longest suffixes first so
+    # "crashes" → strip "-es" → "crash", not "-s" → "crashe".
     if len(word) > 5 and word.endswith("ing"):
         word = word[:-3]
 
@@ -178,6 +179,16 @@ def _normalize_word(word: str) -> str:
 
     elif len(word) > 5 and word.endswith("ly"):
         word = word[:-2]
+
+    # Plural / 3rd-person present: -es before -s so "crashes" → "crash",
+    # "restarts" → "restart", "overheats" → "overheat", "freezes" → "freeze".
+    # Only strip when the result is at least 4 chars (avoids mangling short
+    # words like "is", "does", "goes" that are already in _STOPWORDS).
+    elif len(word) > 5 and word.endswith("es"):
+        word = word[:-2]
+
+    elif len(word) > 4 and word.endswith("s"):
+        word = word[:-1]
 
     return word
 
