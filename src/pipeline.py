@@ -155,6 +155,9 @@ class Pipeline:
 
         # Stage 0
         enrichment = enrich(query, llm_client=client)
+        # Drain Stage 0 token cost (0.0 on free tier / mock; real USD on paid tier).
+        # Must be called before Stage 1/2 so their tokens aren't double-counted.
+        cost_usd = client.consume_cost()
         enrichment_info = {
             "device": enrichment.device,
             "symptom_category": enrichment.symptom_category,
@@ -183,7 +186,7 @@ class Pipeline:
                     "similarity": cache_hit.similarity,
                     "latency_ms": (time.perf_counter() - t0) * 1000,
                     "model": client.model_name,
-                    "cost_usd": 0.0,
+                    "cost_usd": cost_usd,  # Stage 0 only; cache hit = no Stage 1/2 cost
                 },
                 "enrichment": enrichment_info,
             }
@@ -191,6 +194,9 @@ class Pipeline:
         # Stage 1 + Stage 2 (Member B / Member C)
         structured = self.stage1_fn(siis_response, enrichment)
         final = self.stage2_fn(structured, enrichment)
+        # Drain any tokens Stage 1/2 spent (Member B/C call client.complete() here).
+        # On free tier: 0.0. On paid: adds their costs to Stage 0's cost above.
+        cost_usd += client.consume_cost()
         response_dict = final.model_dump()
 
         # §4.2.3 (non-negotiable): an empty result must carry fallback
@@ -221,7 +227,7 @@ class Pipeline:
                 "similarity": None,
                 "latency_ms": (time.perf_counter() - t0) * 1000,
                 "model": client.model_name,
-                "cost_usd": 0.0,
+                "cost_usd": cost_usd,  # Stage 0 + Stage 1 + Stage 2 total
             },
             "enrichment": enrichment_info,
         }

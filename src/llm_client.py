@@ -60,6 +60,46 @@ class LLMClient(ABC):
         """
         return "mock"
 
+    def consume_cost(self) -> float:
+        """Return the USD cost accumulated across all complete() calls since
+        the last consume_cost() call, then reset the counter to 0.0.
+
+        Pipeline pattern — call once after each stage to drain costs into a
+        running request total without double-counting:
+
+            cost  = client.consume_cost()   # Stage 0 tokens
+            stage1_fn(...)                  # Member B calls client.complete()
+            cost += client.consume_cost()   # Stage 1 tokens
+            stage2_fn(...)                  # Member C calls client.complete()
+            cost += client.consume_cost()   # Stage 2 tokens
+            # cost = true USD total for the full request
+
+        Returns 0.0 on MockLLMClient (no API key, no cost) and on free-tier
+        keys (providers return real token counts; the math gives the
+        theoretical paid-tier cost, which auto-activates when you switch
+        from free to paid without any code change).
+        """
+        total = getattr(self, "_cost_usd", 0.0)
+        self._cost_usd = 0.0
+        return total
+
+    def _record_usage(self, prompt_tokens: int, completion_tokens: int,
+                      rate_in: float, rate_out: float) -> None:
+        """Accumulate cost from a single API response's token-usage fields.
+
+        Subclasses call this inside complete() after reading the provider's
+        usage object. rate_in / rate_out are per-token USD rates for
+        input / output respectively (see each provider subclass for the
+        values used).
+
+        Accumulated — not replaced — so multiple complete() calls within
+        one pipeline request sum correctly before consume_cost() drains them.
+        Never raises; cost stays at 0.0 if the provider doesn't return usage.
+        """
+        self._cost_usd = getattr(self, "_cost_usd", 0.0) + (
+            prompt_tokens * rate_in + completion_tokens * rate_out
+        )
+
 
 class MockLLMClient(LLMClient):
     """Deterministic, offline, rule-based stand-in for a real LLM.
@@ -114,17 +154,34 @@ class GeminiLLMClient(LLMClient):
         self._model_name = model or os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite")
         self._model = genai.GenerativeModel(self._model_name)
 
+    # Gemini flash-lite pricing (per token, USD, as of 2025)
+    # Source: https://ai.google.dev/gemini-api/docs/pricing
+    # Free tier: same token counts returned, cost math gives $0.00 at 0 QPM cost.
+    # Switch to paid: rates activate automatically with no code change needed.
+    _RATE_IN  = 0.10 / 1_000_000   # $0.10 per 1M input tokens
+    _RATE_OUT = 0.40 / 1_000_000   # $0.40 per 1M output tokens
+
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._model.generate_content(
             [system_prompt, user_prompt],
             generation_config={"temperature": _LLM_TEMPERATURE},
             request_options={"timeout": _LLM_TIMEOUT_SECONDS},
         )
+        try:
+            u = resp.usage_metadata
+            self._record_usage(
+                u.prompt_token_count or 0,
+                u.candidates_token_count or 0,
+                self._RATE_IN, self._RATE_OUT,
+            )
+        except Exception:
+            pass  # metadata absent on some response types — cost stays 0.0
         return resp.text
 
     @property
     def model_name(self) -> str:
         return self._model_name
+
 
 
 class OpenAILLMClient(LLMClient):
@@ -133,6 +190,11 @@ class OpenAILLMClient(LLMClient):
 
         self._client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=_LLM_TIMEOUT_SECONDS)
         self._model = model or os.environ.get("LLM_MODEL", "gpt-4o-mini")
+
+    # gpt-4o-mini pricing (per token, USD, as of 2025)
+    # Free tier / no billing: token counts still returned; rates activate on paid tier automatically.
+    _RATE_IN  = 0.15 / 1_000_000   # $0.15 per 1M input tokens
+    _RATE_OUT = 0.60 / 1_000_000   # $0.60 per 1M output tokens
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._client.chat.completions.create(
@@ -144,6 +206,14 @@ class OpenAILLMClient(LLMClient):
             temperature=_LLM_TEMPERATURE,
             seed=0,  # OpenAI's best-effort reproducibility knob; harmless where ignored
         )
+        try:
+            self._record_usage(
+                resp.usage.prompt_tokens or 0,
+                resp.usage.completion_tokens or 0,
+                self._RATE_IN, self._RATE_OUT,
+            )
+        except Exception:
+            pass
         return resp.choices[0].message.content or ""
 
     @property
@@ -158,6 +228,11 @@ class AnthropicLLMClient(LLMClient):
         self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=_LLM_TIMEOUT_SECONDS)
         self._model = model or os.environ.get("LLM_MODEL", "claude-haiku-4-5")
 
+    # claude-haiku-4-5 pricing (per token, USD, as of 2025)
+    # Free tier / no billing: token counts still returned; rates activate on paid tier automatically.
+    _RATE_IN  = 0.80 / 1_000_000   # $0.80 per 1M input tokens
+    _RATE_OUT = 4.00 / 1_000_000   # $4.00 per 1M output tokens
+
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._client.messages.create(
             model=self._model,
@@ -166,6 +241,14 @@ class AnthropicLLMClient(LLMClient):
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
+        try:
+            self._record_usage(
+                resp.usage.input_tokens or 0,
+                resp.usage.output_tokens or 0,
+                self._RATE_IN, self._RATE_OUT,
+            )
+        except Exception:
+            pass
         return "".join(block.text for block in resp.content if hasattr(block, "text"))
 
     @property
