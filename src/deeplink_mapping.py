@@ -9,7 +9,7 @@ from enrichment import EnrichmentResult
 from schema import ContextDeeplinkResponse, Deeplink, ValidationDeepLink, actionCategory
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-SIMILARITY_THRESHOLD = 0.35  # placeholder — tune against sample_output.json
+SIMILARITY_THRESHOLD = 0.35  # placeholder � tune against sample_output.json
 
 # Stage 1 (the LLM) sometimes labels a physical-intervention or restart/reset
 # step as "auto" even though schema.py reserves "auto" for steps reachable via
@@ -25,27 +25,59 @@ SIMILARITY_THRESHOLD = 0.35  # placeholder — tune against sample_output.json
 # both "manual/critical actions cannot carry deeplinks" and the catalog
 # integrity requirement. These patterns catch the obvious cases directly from
 # the text instead of relying on similarity-score luck to keep them out.
+# "power button" / "volume button" alone are too generic -- real catalog
+# entries ("Side key double press action", "Lock instantly with Side key")
+# legitimately name the button while describing a tap/press *binding*, not
+# an instruction to physically hold it down now. What actually distinguishes
+# "press and hold the Power button for 20 seconds" (force a restart) from
+# "configure what a double press of the Power button does" (a settings
+# toggle) is the sustained "press and hold", so that phrase is required
+# rather than the bare button name.
 _CRITICAL_RE = re.compile(
-    r"\b(restart|reboot|factory\s+(?:data\s+)?reset|firmware\s+update|safe\s+mode|"
-    r"power\s+buttons?|volume\s+down\s+buttons?)\b",
+    r"\b(restart(?:ing)?|reboot(?:ing)?|factory\s+(?:data\s+)?reset|firmware\s+update|safe\s+mode)\b"
+    r"|press(?:ing)?(?:\s+and)?\s+hold(?:ing)?\b[^.]{0,60}\b(?:power|volume)\b",
     re.IGNORECASE,
 )
+# Bare nouns like "charger" / "USB cable" / "inspect" are too generic on
+# their own -- real catalog entries ("Fast Charging Settings", "USB
+# Tethering Settings") legitimately mention them while describing a
+# software toggle. Each pattern below instead requires the fuller phrase
+# that actually distinguishes "physically do something to the hardware"
+# from "configure a setting related to hardware".
 _MANUAL_RE = re.compile(
-    r"\b(charger|charging\s+cable|usb\s+cable|physical\s+damage|liquid\s+exposure|"
-    r"service\s+cent(?:er|re)|clean(?:ing)?\s+(?:the\s+)?port|sim\S*\s*tray|inspect|"
-    r"removable\s+battery|replace\s+the\s+(?:battery|screen)|"
-    r"disconnect\s+the\s+phone|connect\s+your\s+phone)\b",
+    r"(physical\s+damage|liquid\s+exposure|service\s+cent(?:er|re)s?|repair\s+services?|"
+    r"sim\S*\s*tray|removable\s+battery|replace\s+the\s+(?:battery|screen)|"
+    r"clean(?:ing)?\s+(?:the\s+)?port|"
+    r"(?:inspect|examine|check)\b[^.]{0,50}\bdamage\b|"
+    r"connect\s+(?:your|the)\s+(?:phone|tablet|device)[^.]{0,20}to\s+its\s+(?:appropriate\s+)?charger|"
+    r"disconnect\s+(?:the|your)\s+(?:phone|tablet|device)[^.]{0,20}from\s+the\s+charger|"
+    r"let\s+it\s+charge\s+for\s+at\s+least)",
     re.IGNORECASE,
 )
-
+# The catalog genuinely contains settings-screen deeplinks about *configuring*
+# restart behavior -- "Restart on schedule", "Inactivity restart", "Enable/
+# Disable Auto Restart" -- which are legitimate "auto" actions navigable via
+# Settings, not a physical button-press restart. _CRITICAL_RE's bare
+# "restart" keyword can't tell these apart from "press and hold the Power
+# button to force a restart", so this exception is checked first and, when it
+# matches, _infer_non_auto_category defers entirely to the normal semantic
+# match against the catalog instead of forcing a category.
+_RESTART_SETTINGS_RE = re.compile(
+    r"\b(restart\s+on\s+schedule|inactivity\s+restart|auto(?:matic)?\s+restart|"
+    r"(?:enable|disable)\s+(?:auto(?:matic)?\s+)?restart)\b",
+    re.IGNORECASE,
+)
 
 def _infer_non_auto_category(text: str):
-    """Return actionCategory.critical / .manual if `text` clearly describes a
+    """Return actionCategory.critical / .manual if 	ext clearly describes a
     restart/reset or a physical-hardware step, else None (defer to the
     existing similarity match). Checked in this order because "restart" is
     the more specific, brief-named critical example; physical/hardware
-    language is the broader manual catch-all.
+    language is the broader manual catch-all; the settings-restart exception
+    is checked before either, since it overrides both.
     """
+    if _RESTART_SETTINGS_RE.search(text):
+        return None
     if _CRITICAL_RE.search(text):
         return actionCategory.critical
     if _MANUAL_RE.search(text):
@@ -65,7 +97,7 @@ def _load_catalog():
     global _catalog, _catalog_texts, _catalog_matrix, _embedder, _placeholder
     if _catalog is not None:
         return
-    raw = json.loads((DATA_DIR / "deeplinks.json").read_text())
+    raw = json.loads((DATA_DIR / "deeplinks.json").read_text(encoding="utf-8"))
     entries = raw["deeplinks"]
     _placeholder = next(
         (d["deeplink"] for d in entries if d.get("originalType") == "placeholder"),
@@ -98,19 +130,10 @@ def _core(name: str) -> list[str]:
 
 def _fit(words: list[str], lo: int = 5, hi: int = 7) -> str:
     words = words[:hi]
+    fillers = iter(["device", "the", "Galaxy"])
     while len(words) < lo:
-        words.insert(1, "device")
+        words.insert(1, next(fillers, "device"))
     return " ".join(words)
-
-
-def _dummy_positive(action_name: str) -> Deeplink:
-    _load_catalog()
-    c = _core(action_name)
-    return Deeplink(
-        deeplink=_placeholder,
-        description=_fit(["Open", *c, "settings", "screen"]),
-        message=_fit(["Open", *c, "in", "device", "Settings"]),
-    )
 
 
 def _to_validation_deeplink(entry: dict) -> ValidationDeepLink | None:
@@ -133,6 +156,17 @@ def deeplink_mapping(
                 inferred = _infer_non_auto_category(combined_text)
                 if inferred is not None:
                     action.category = inferred
+            else:
+                # Stage 1 also mislabels in the other direction (seen in
+                # results.jsonl: "Force a Restart" as manual, "Visit Service
+                # Center" as critical, "Safe Mode" as manual). The brief is
+                # explicit: restart/reset/safe mode/firmware = critical;
+                # service centre / hardware = manual. Only the action NAME is
+                # checked here -- steps of a manual action often mention
+                # "restart" in passing, which must not escalate it.
+                inferred = _infer_non_auto_category(action.actionName)
+                if inferred is not None:
+                    action.category = inferred
             for step_group in action.stepGroups:
                 if action.category != actionCategory.auto:
                     # Only auto actions may carry deeplinks (manual is a schema rule;
@@ -140,8 +174,16 @@ def deeplink_mapping(
                     step_group.actionableDeeplink = None
                     step_group.validationDeeplink = None
                     continue
+                
                 query_text = " ".join(step_group.steps)
                 match, score = _best_match(query_text)
+                
+                # If the full steps text is low confidence, recheck against just the action name
+                if score < SIMILARITY_THRESHOLD:
+                    alt_match, alt_score = _best_match(action.actionName)
+                    if alt_score > score:
+                        match, score = alt_match, alt_score
+
                 if score >= SIMILARITY_THRESHOLD:
                     step_group.actionableDeeplink = Deeplink(
                         deeplink=match["deeplink"],
@@ -151,5 +193,12 @@ def deeplink_mapping(
                     )
                     step_group.validationDeeplink = _to_validation_deeplink(match)
                 else:
-                    step_group.actionableDeeplink = _dummy_positive(action.actionName)
+                    # Find another way to handle it: downgrade to manual instead of fabricating a dummy link
+                    action.category = actionCategory.manual
+                    step_group.actionableDeeplink = None
+                    step_group.validationDeeplink = None
+        # Plan hierarchy: critical/destructive actions last. Recategorisation
+        # above can turn an early action critical, so re-sort (stable -- the
+        # relative order Stage 1 chose is kept within each group).
+        goal.actions.sort(key=lambda a: 1 if a.category == actionCategory.critical else 0)
     return structured

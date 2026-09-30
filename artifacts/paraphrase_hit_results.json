@@ -1,0 +1,170 @@
+{
+  "warmed_entries": 14,
+  "scored": 20,
+  "hits": 20,
+  "hit_rate": 1.0,
+  "hit_latency_p50_ms": 2.26,
+  "hit_latency_p95_ms": 2.7,
+  "detail": [
+    {
+      "query": "galaxy s22 screen goes white/blank when i open apps",
+      "source_row": 1,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000004,
+      "latency_ms": 2.7
+    },
+    {
+      "query": "My S22's display is completely black, nothing shows",
+      "source_row": 1,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9442126759387349,
+      "latency_ms": 2.62
+    },
+    {
+      "query": "Z Flip 7 screen went black, can't transfer my data",
+      "source_row": 2,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9817562303212317,
+      "latency_ms": 2.42
+    },
+    {
+      "query": "galaxy z flip7 display dead black cant use smart switch",
+      "source_row": 2,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.990444394619691,
+      "latency_ms": 2.28
+    },
+    {
+      "query": "Samsung Galaxy A16 screen went black by itself, won't display anything",
+      "source_row": 3,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.953355883961184,
+      "latency_ms": 2.23
+    },
+    {
+      "query": "My Galaxy Flip 7 inner screen stopped working",
+      "source_row": 7,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000009,
+      "latency_ms": 2.47
+    },
+    {
+      "query": "the folding screen on my flip 7 is dead",
+      "source_row": 7,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9634524530960215,
+      "latency_ms": 2.52
+    },
+    {
+      "query": "Galaxy Z Flip 6 screen flickers then goes blank when I open it",
+      "source_row": 8,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000007,
+      "latency_ms": 2.29
+    },
+    {
+      "query": "my flip 6 half the display is black, other half works",
+      "source_row": 9,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9442126759387349,
+      "latency_ms": 2.21
+    },
+    {
+      "query": "Galaxy S22 no activation message, screen stays blank after carrier switch",
+      "source_row": 11,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000004,
+      "latency_ms": 2.24
+    },
+    {
+      "query": "my phone's screen is cracked and bleeding",
+      "source_row": 12,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000007,
+      "latency_ms": 2.05
+    },
+    {
+      "query": "galaxy s26 ultra shows a blue or black screen and won't boot",
+      "source_row": 13,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000007,
+      "latency_ms": 2.41
+    },
+    {
+      "query": "S Ultra screen flashes super fast when charging",
+      "source_row": 14,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9773534285175184,
+      "latency_ms": 2.92
+    },
+    {
+      "query": "My Galaxy S24 screen stays dark and blank",
+      "source_row": 15,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000009,
+      "latency_ms": 2.16
+    },
+    {
+      "query": "Galaxy Z Flip 7 screen cracked at the fold",
+      "source_row": 16,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000016,
+      "latency_ms": 2.03
+    },
+    {
+      "query": "Galaxy S22 touch is laggy and delayed",
+      "source_row": 18,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000004,
+      "latency_ms": 1.88
+    },
+    {
+      "query": "touchscreen lag on galaxy s22 when typing",
+      "source_row": 18,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000004,
+      "latency_ms": 1.82
+    },
+    {
+      "query": "galaxy s24 ultra black screen of death but it still rings",
+      "source_row": 19,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000002,
+      "latency_ms": 1.92
+    },
+    {
+      "query": "My Galaxy S24 Ultra display is black though the phone is on",
+      "source_row": 19,
+      "scored": true,
+      "hit": true,
+      "similarity": 1.0000000000000002,
+      "latency_ms": 2.3
+    },
+    {
+      "query": "phone screen black wont turn on",
+      "source_row": 1,
+      "scored": true,
+      "hit": true,
+      "similarity": 0.9442126759387349,
+      "latency_ms": 1.83
+    }
+  ]
+}

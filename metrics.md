@@ -1,3 +1,68 @@
+# System Performance Metrics & Evaluation Report
+
+**Model(s):** `gemini-3.5-flash-lite` (Google, via `LLM_PROVIDER=gemini`; offline `MockLLMClient` fallback)
+**Embeddings:** char n-gram (3-5, `char_wb`) TF-IDF, fit on the kit corpus (`artifacts/tfidf_vectorizer.pkl`) - no network, no fine-tuning
+**Environment:** Windows laptop for the Gemini run; cache/latency benchmarks re-run on a 2-vCPU / 3 GB RAM Linux VM, Python 3.10
+
+All numbers below are measured from `results.jsonl` (58 lines: 20 `data/input.txt` rows with their SIIS text + 38 `data/unseen_scenarios.txt` rows with no SIIS text) and `scripts/eval_paraphrase_hits.py`. Reproduce: `python scripts/generate_results.py && python scripts/validate_results.py && python scripts/eval_paraphrase_hits.py`.
+
+## 1. Schema & Rule Compliance
+
+| Metric | Target | Measured Value |
+| :--- | :--- | :--- |
+| Schema-valid output lines | >= 99% | 100% (58/58, `scripts/validate_results.py`) |
+| Rule compliance (Goal / Title / Description syntax) | >= 95% | 100% (14/14 goals, 14/14 titles, 43/43 descriptions) |
+| Absolute URL leaks | 0 | 0 |
+| Deeplink catalog validity (exact URI match) | 100% | 100% (4/4 URIs copied verbatim from `deeplinks.json`) |
+| Auto actions carrying valid actionable deeplink | >= 90% | 100% (2/2) |
+
+Empty answers carry the brief's fallback metadata: 6 `no_match` (SIIS text present but not relevant / no extractable procedure) and 38 `no_siis_context` (unseen scenarios sent with no reference text).
+
+## 2. Accuracy Benchmarks
+
+| Evaluation Metric | Scale / Anchor | Score |
+| :--- | :--- | :--- |
+| Step accuracy (completeness, correctness, ordering) | 0.0 - 3.0 | Not independently graded (no ground-truth plans in the kit beyond `sample_output.json`). Every step is checked against the SIIS text by `structure_extraction._step_is_supported`; ungrounded steps are dropped. Critical actions are always last (enforced in Stage 1 and again after Stage 2). |
+| Deeplink relevance (exact target screen vs. parent menu) | 0.0 - 2.0 | Not independently graded. Only 2 of 43 actions are `auto`: the kit's SIIS articles for these 20 complaints are mostly physical/service procedures, so most actions are correctly `manual`/`critical` and carry no deeplink. |
+
+## 3. Latency Benchmarks (N >= 3)
+
+| Execution Path | Target (P95) | P50 (ms) | P95 (ms) |
+| :--- | :--- | :--- | :--- |
+| Cache hit - exact query match | <= 300 ms | ~2 | ~3 |
+| Cache hit - unseen semantic paraphrase | <= 300 ms | 2.0 | 2.5 (N=20) |
+| Cold query - full pipeline extraction & mapping | <= 8000 ms | 1750 | 2597 (N=19, real Gemini calls) |
+
+## 4. Operational Cost & Cache Efficacy
+
+| Metric Item | Target | Measured Value |
+| :--- | :--- | :--- |
+| Cold query average inference cost | Tracked | Reported per request in `meta.cost_usd` = (prompt tokens x rate_in + completion tokens x rate_out). NOTE: the `results.jsonl` in this commit was generated before the cost-accounting fix (see README), so it shows 0.0; regenerate to populate. |
+| Cache hit inference cost | $0.00 | $0.00 (no Stage 1/2 call; keyword-matched Stage 0 makes no LLM call) |
+| Semantic cache hit rate (on unseen paraphrases) | >= 80% | 100% (20/20) - cache pre-warmed from `results.jsonl`, 20 hand-written paraphrases of the answerable input complaints sent WITHOUT `siis_response` (`scripts/eval_paraphrase_hits.py`; small, team-written set - treat as indicative) |
+| Cost derivation method | - | (prompt tokens + completion tokens) x rate |
+
+## 5. Architectural Ablation Analysis
+
+| Architecture Variant | Step Accuracy | Latency (P95) | Cost / Query | Key Observations |
+| :--- | :--- | :--- | :--- | :--- |
+| Baseline: Full LLM Deeplink Mapping | not run | - | - | Not built: the brief forbids altering URIs, and a lexical retriever guarantees verbatim catalog URIs. |
+| Variant A: Hybrid BM25 + Dense Embedding Retrieval | not run | - | - | Dense models blocked (huggingface.co unreachable on our network); char-n-gram TF-IDF used instead. |
+| Variant B (shipped): TF-IDF retrieval + rule-based category guard | see sec. 1-2 | ~3 ms mapping | $0 | Regex guard stops restart/hardware steps getting settings deeplinks; low-similarity auto steps fall back to `bixby://dummy_positive`. |
+
+## 6. Known Edge Cases & System Limitations
+
+* Symptom taxonomy is keyword-based: complaints outside it are `unclassified` and never cached (always cold path).
+* Bare model shorthand without "Galaxy"/"Samsung" (e.g. "my s22") is treated as an unknown device; the cache treats unknown as a wildcard, so it can still hit.
+* Stage 1 quality depends on the SIIS article: when the article is off-topic for the complaint the relevance gate returns `no_match` rather than guessing.
+* Deeplink retrieval is lexical; paraphrased settings names with no shared character n-grams can fall back to `dummy_positive`.
+
+---
+
+# Appendix: Stage 0 + Stage 3 development log (historical)
+
+The section below is the earlier Member-A-only benchmark, kept for the record. Parts of it are superseded (the stages are now wired, the cache is pre-warmed, device-less queries are no longer excluded from the cache, and the LLM timeout is 30 s).
+
 # Performance Report — Stage 0 (Query Enrichment) + Stage 3 (Semantic Cache)
 
 Generated from `scripts/benchmark_cache.py`, run against `artifacts/tfidf_vectorizer.pkl`

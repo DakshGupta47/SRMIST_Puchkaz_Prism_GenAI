@@ -42,6 +42,8 @@ not left to the embedding to sort out.
 """
 from __future__ import annotations
 
+import copy
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -58,7 +60,24 @@ UNKNOWN_DEVICE = "unknown"
 
 
 def _normalize_device(device: Optional[str]) -> str:
-    return (device or UNKNOWN_DEVICE).strip().lower()
+    """Canonical device key, so the same phone written differently still
+    matches: "Galaxy Z Flip 7" / "Z Flip 7" / "Galaxy Flip7" -> "flip7",
+    "Samsung Galaxy S24 Ultra" -> "s24ultra". Different models stay distinct."""
+    d = (device or UNKNOWN_DEVICE).strip().lower()
+    if d in ("", UNKNOWN_DEVICE, "samsung device"):
+        return UNKNOWN_DEVICE
+    d = re.sub(r"\b(samsung|galaxy)\b", " ", d)
+    d = re.sub(r"\bz\s*(?=(flip|fold))", " ", d)
+    d = re.sub(r"[\s\-_]+", "", d)
+    return d or UNKNOWN_DEVICE
+
+
+def _devices_compatible(a: str, b: str) -> bool:
+    """Exact key match, "unknown" wildcard, or overlap of slash-alternatives
+    ("a15/a16" covers a query for "a16")."""
+    if a == b or a == UNKNOWN_DEVICE or b == UNKNOWN_DEVICE:
+        return True
+    return bool(set(a.split("/")) & set(b.split("/")))
 
 
 @dataclass
@@ -67,6 +86,9 @@ class CacheEntry:
     query_variations: List[str]
     response: dict
     device: str = UNKNOWN_DEVICE
+    # Fingerprint of the siis_response this answer was extracted from (None =
+    # unknown / not recorded). See get(context_key=...).
+    context_key: Optional[str] = None
     hits: int = 0
     created_at: float = field(default_factory=time.time)
 
@@ -100,6 +122,7 @@ class SemanticCache:
         self._matrix: Optional[sparse.csr_matrix] = None
         self._row_entry: List[int] = []
         self._row_device: List[str] = []
+        self._row_context: List[Optional[str]] = []
         self._pending: List[sparse.csr_matrix] = []  # batched, flushed lazily
 
         self._simhash_planes: Optional[np.ndarray] = None
@@ -135,7 +158,7 @@ class SemanticCache:
     # -- writes -------------------------------------------------------------
 
     def put(self, canonical_query: str, query_variations: List[str], response: dict,
-            device: Optional[str] = None) -> None:
+            device: Optional[str] = None, context_key: Optional[str] = None) -> None:
         texts = [canonical_query] + list(query_variations)
         vecs = self.embedder.encode_sparse(texts)  # already L2-normalized, sparse
 
@@ -145,12 +168,14 @@ class SemanticCache:
             self._entries.append(CacheEntry(
                 canonical_query=canonical_query,
                 query_variations=list(query_variations),
-                response=response,
+                response=copy.deepcopy(response),
                 device=device_key,
+                context_key=context_key,
             ))
             self._pending.append(vecs)
             self._row_entry.extend([entry_idx] * vecs.shape[0])
             self._row_device.extend([device_key] * vecs.shape[0])
+            self._row_context.extend([context_key] * vecs.shape[0])
 
             if len(self._entries) > self.max_entries:
                 self._evict_oldest()
@@ -172,11 +197,20 @@ class SemanticCache:
         self._matrix = self._matrix[keep_rows] if self._matrix is not None else None
         self._row_entry = [e if e < victim_idx else e - 1 for e in self._row_entry if e != victim_idx]
         self._row_device = [self._row_device[r] for r in keep_rows]
+        self._row_context = [self._row_context[r] for r in keep_rows]
 
     # -- reads ----------------------------------------------------------
 
     def get(self, query: str, query_variations: Optional[List[str]] = None,
-            device: Optional[str] = None) -> Optional[CacheResult]:
+            device: Optional[str] = None, context_key: Optional[str] = None) -> Optional[CacheResult]:
+        """context_key: when the caller has its own reference text (a
+        siis_response), pass its fingerprint -- only entries built from that
+        same reference (or with no recorded fingerprint) can hit. Otherwise
+        two different complaints that normalize to the same canonical text
+        would be served an answer extracted from a DIFFERENT article than the
+        one supplied in the request. None = no reference given, match any
+        entry (the brief's "semantic lookup against pre-warmed entries").
+        """
         t0 = time.perf_counter()
         with self._lock:
             if not self._entries:
@@ -197,12 +231,16 @@ class SemanticCache:
 
             # Hard device gate: "unknown" on either side matches anything,
             # otherwise the row is masked out of consideration entirely.
-            row_devices = np.asarray(self._row_device)
-            device_mask = (
-                (row_devices == device_key)
-                | (row_devices == UNKNOWN_DEVICE)
-                | (device_key == UNKNOWN_DEVICE)
+            compat = {d: _devices_compatible(d, device_key) for d in set(self._row_device)}
+            device_mask = np.fromiter(
+                (compat[d] for d in self._row_device), dtype=bool, count=len(self._row_device)
             )
+            if context_key is not None:
+                row_ctx = self._row_context
+                ctx_mask = np.fromiter(
+                    (c == context_key for c in row_ctx), dtype=bool, count=len(row_ctx)
+                )
+                device_mask = device_mask & ctx_mask
             best_per_row = np.where(device_mask, best_per_row, -1.0)
 
             # Group max similarity per entry (a query can match any of an
@@ -223,7 +261,7 @@ class SemanticCache:
             entry = self._entries[best_entry_idx]
             entry.hits += 1
             return CacheResult(
-                response=entry.response,
+                response=copy.deepcopy(entry.response),  # callers may mutate; never alias the cached copy
                 similarity=best_sim,
                 matched_query=entry.canonical_query,
                 latency_ms=latency_ms,

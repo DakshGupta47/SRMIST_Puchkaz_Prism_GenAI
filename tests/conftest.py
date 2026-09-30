@@ -1,7 +1,11 @@
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# api.py pre-warms its cache from results.jsonl at import; tests need a cold cache.
+os.environ.setdefault("CACHE_WARM_FILE", "")
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 if str(SRC) not in sys.path:

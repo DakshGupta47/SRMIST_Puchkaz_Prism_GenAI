@@ -21,6 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY data/ ./data/
 COPY scripts/ ./scripts/
+# Validated responses used to pre-warm the semantic cache at startup
+COPY results.jsonl ./results.jsonl
 
 # Build TF-IDF vectorizer at image build time
 RUN python scripts/build_corpus_vectorizer.py

@@ -92,6 +92,9 @@ a license to guess quickly.
 """
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import time
 from typing import Callable, Optional
 
@@ -127,6 +130,53 @@ def _stage2_not_wired(structured: ContextDeeplinkResponse, enrichment: Enrichmen
     """
     return structured
 
+
+
+def _has_siis(siis_response) -> bool:
+    return bool(
+        siis_response
+        and (
+            not isinstance(siis_response, dict)
+            or any(str(v).strip() for v in siis_response.values())
+        )
+    )
+
+
+def siis_fingerprint(siis_response) -> Optional[str]:
+    """Stable short hash of the reference text, used so a cache hit is only
+    served from an entry built on the SAME siis_response the caller sent."""
+    if not _has_siis(siis_response):
+        return None
+    if isinstance(siis_response, dict):
+        payload = json.dumps(
+            {k: str(v).strip() for k, v in siis_response.items()}, sort_keys=True, ensure_ascii=False
+        )
+    else:
+        payload = str(siis_response).strip()
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _norm_q(q: str) -> str:
+    import re as _re
+    q = _re.sub(r"^\s*\d+[.)]\s*", "", q or "").strip().strip('"\u201c\u201d\' ')
+    return _re.sub(r"\s+", " ", q).lower()
+
+
+def cache_eligible(enrichment: EnrichmentResult) -> bool:
+    """Cache gate. Keyed on the SYMPTOM being keyword-recognized, not on
+    min(device, symptom): a complaint that names no model ("phone screen went
+    black", the brief's own keyword register) has a perfectly well-defined
+    symptom and must still reach the fast path. The device gate is handled by
+    the cache itself (unknown device = wildcard). Unclassified and
+    llm_fallback results stay out, exactly as before."""
+    return enrichment.classification_source == "keyword_match" and enrichment.symptom_confidence >= 0.5
+
+
+def cache_device(enrichment: EnrichmentResult) -> Optional[str]:
+    # "Samsung device" is enrichment's placeholder, NOT a device: pass None so
+    # the cache treats it as its "unknown" wildcard instead of a literal
+    # device string that only ever matches other placeholder entries.
+    return enrichment.device if enrichment.device_confidence > 0 else None
 
 
 class Pipeline:
@@ -175,10 +225,17 @@ class Pipeline:
         # Stage 3 (read path) — skipped entirely when Stage 0 isn't confident;
         # see module docstring for why (false-positive hits across unrelated
         # low-confidence queries).
+        has_siis = _has_siis(siis_response)
+        context_key = siis_fingerprint(siis_response)
+        eligible = cache_eligible(enrichment)
+        # The raw complaint is embedded too: a paraphrase is often closer to
+        # the customer's own wording than to the templated canonical text.
+        cache_texts = [query] + list(enrichment.query_variations)
         cache_hit = None
-        if not enrichment.is_low_confidence:
+        if eligible:
             cache_hit = self.cache.get(
-                enrichment.canonical_query, enrichment.query_variations, device=enrichment.device
+                enrichment.canonical_query, cache_texts,
+                device=cache_device(enrichment), context_key=context_key,
             )
         if cache_hit is not None:
             return {
@@ -226,22 +283,19 @@ class Pipeline:
         # response_dict before caching so a later cache HIT on this same
         # (rare — see the confidence gate below) entry still carries it.
         if not response_dict.get("contexts"):
-            has_siis = bool(
-                siis_response
-                and (
-                    not isinstance(siis_response, dict)
-                    or any(str(v).strip() for v in siis_response.values())
-                )
-            )
             response_dict["fallback"] = "no_match" if has_siis else "no_siis_context"
 
         # Stage 3 (write path) — same confidence gate as the read path,
         # otherwise this is exactly what would poison the cache with a
         # near-duplicate key for unrelated future ambiguous queries.
-        if not enrichment.is_low_confidence:
+        # Empty/fallback results are never cached: a query first seen WITHOUT
+        # a siis_response ("no_siis_context") would otherwise poison the entry
+        # and every later request for it -- even one that does carry the
+        # reference text -- would be served the empty answer from cache.
+        if eligible and response_dict.get("contexts"):
             self.cache.put(
-                enrichment.canonical_query, enrichment.query_variations, response_dict,
-                device=enrichment.device,
+                enrichment.canonical_query, cache_texts, copy.deepcopy(response_dict),
+                device=cache_device(enrichment), context_key=context_key,
             )
 
         return {
@@ -257,3 +311,59 @@ class Pipeline:
             },
             "enrichment": enrichment_info,
         }
+
+    def warm_from_results(self, path, siis_file=None) -> int:
+        """Pre-warm the semantic cache from an already-generated results.jsonl
+        (validated responses, no LLM calls). The brief: "If siis_response is
+        omitted, the engine performs semantic lookup against pre-warmed cache
+        entries" -- without this a freshly started server has an empty cache
+        and answers every siis-less request with no_siis_context.
+        Stage 0 is re-run with the offline mock client (keyword path is
+        deterministic, so the canonical/variations match what a live request
+        computes). When the row's complaint is one of data/siis_responses.json's
+        original queries, the entry is fingerprinted with that reference text,
+        so a request that sends the same siis_response can also hit; siis-less
+        requests match any entry. Returns the number of entries written.
+        """
+        from pathlib import Path
+        from llm_client import MockLLMClient
+
+        path = Path(path)
+        if not path.is_file():
+            return 0
+        mock = MockLLMClient()
+        siis_by_query = {}
+        siis_path = Path(siis_file) if siis_file else path.parent / "data" / "siis_responses.json"
+        if siis_path.is_file():
+            try:
+                for rec in json.loads(siis_path.read_text(encoding="utf-8")).get("responses", []):
+                    key = _norm_q(rec.get("original_query", ""))
+                    if key:
+                        siis_by_query[key] = rec.get("siis_response") or {}
+            except Exception:
+                siis_by_query = {}
+        written = 0
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                response = row.get("response") or {}
+                if not response.get("contexts"):
+                    continue
+                ContextDeeplinkResponse.model_validate({"contexts": response["contexts"]})
+                query = row["query"]
+                enrichment = enrich(query, llm_client=mock)
+                if not cache_eligible(enrichment):
+                    continue
+                texts = [query] + list(enrichment.query_variations) + [
+                    v for v in row.get("query_variations", []) if isinstance(v, str)
+                ]
+                self.cache.put(
+                    enrichment.canonical_query, texts, response, device=cache_device(enrichment),
+                    context_key=siis_fingerprint(siis_by_query.get(_norm_q(query))),
+                )
+                written += 1
+            except Exception:  # a bad line must never stop the server from starting
+                continue
+        return written

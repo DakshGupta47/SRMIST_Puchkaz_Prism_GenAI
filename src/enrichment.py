@@ -75,6 +75,10 @@ UNKNOWN_DEVICE_LABEL = "Samsung device"  # fallback when no specific model is re
 
 
 def extract_device(raw: str) -> str:
+    # Drop a "Samsung" brand prefix in front of "Galaxy" first: regex search is
+    # leftmost-first, so "Samsung Galaxy Z Flip 6" used to be captured by the
+    # generic "Samsung Galaxy <word>" branch as just "Samsung Galaxy Z".
+    raw = re.sub(r"(?i)\bsamsung\s+(?=galaxy\b)", "", raw)
     match = _DEVICE_PATTERN.search(raw)
     if not match:
         return UNKNOWN_DEVICE_LABEL

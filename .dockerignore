@@ -14,8 +14,7 @@ __pycache__
 .env.*
 !.env.example
 
-# Local evaluation outputs and build artifacts
-results.jsonl
+# Local build artifacts (results.jsonl is KEPT: api.py pre-warms the cache from it)
 artifacts/tfidf_vectorizer.pkl
 
 # OS artifacts

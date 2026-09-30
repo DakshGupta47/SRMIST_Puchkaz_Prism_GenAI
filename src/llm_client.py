@@ -301,7 +301,7 @@ class AnthropicLLMClient(LLMClient):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         resp = self._client.messages.create(
             model=self._model,
-            max_tokens=1024,
+            max_tokens=4096,  # Stage 1 plans are long JSON; 1024 truncated them mid-object
             temperature=_LLM_TEMPERATURE,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -378,6 +378,15 @@ class _TimeoutGuardedClient(LLMClient):
     def model_name(self) -> str:
         return self._inner.model_name
 
+    def consume_cost(self) -> float:
+        """The inner provider client is the one whose complete() calls
+        _record_usage(), so its counter is where the real token cost lands.
+        Without this override the wrapper drained its OWN (always-zero)
+        counter and meta.cost_usd was 0.0 for every real Gemini/OpenAI/
+        Anthropic request.
+        """
+        return super().consume_cost() + self._inner.consume_cost()
+
 
 # get_llm_client() is called on every enrich() invocation (see enrichment.py),
 # so a real provider client — and the thread pool _TimeoutGuardedClient opens
@@ -411,7 +420,15 @@ def get_llm_client() -> LLMClient:
             client = _TimeoutGuardedClient(AnthropicLLMClient())
         else:
             client = MockLLMClient()
-    except Exception:
+    except Exception as exc:
+        # Loud, not silent: a missing SDK (e.g. google-generativeai not in the
+        # image) or a missing key otherwise downgrades every request to the
+        # mock generator with no visible sign except meta.model == "mock".
+        import logging
+        logging.getLogger(__name__).warning(
+            "LLM_PROVIDER=%s failed to initialize (%s: %s); falling back to MockLLMClient",
+            provider, type(exc).__name__, exc,
+        )
         client = MockLLMClient()
 
     _client_cache[cache_key] = client

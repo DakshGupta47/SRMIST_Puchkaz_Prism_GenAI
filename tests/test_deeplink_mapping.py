@@ -77,26 +77,27 @@ def test_matched_deeplink_is_always_copied_verbatim_from_catalog():
     assert matched.deeplink in CATALOG_DEEPLINKS or matched.deeplink.endswith("://dummy_positive")
 
 
-def test_auto_action_with_no_real_match_falls_back_to_dummy_positive():
+def test_auto_action_with_no_real_match_falls_back_to_manual():
     action = Action(
-        actionName="Lighting and Camera Modes",
-        description="It will adjust camera lighting settings.",
+        actionName="Make a sandwich",
+        description="It will prepare food.",
         category=actionCategory.auto,
         stepGroups=[
             StepGroup(
                 steps=[
-                    "Increase the lighting in your scene.",
-                    "Disable Super steady mode.",
-                    "Adjust shutter speed in Pro Video mode until flickering disappears.",
+                    "Get some bread.",
+                    "Put peanut butter and jelly on it.",
                 ]
             )
         ],
     )
     result = deeplink_mapping(_wrap(action), _fake_enrichment())
-    step_group = result.contexts[0].actions[0].stepGroups[0]
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
 
-    assert step_group.actionableDeeplink is not None
-    assert step_group.actionableDeeplink.deeplink.endswith("://dummy_positive")
+    # Instead of fabricating a dummy link, it should just downgrade to manual
+    assert fixed_action.category == actionCategory.manual
+    assert step_group.actionableDeeplink is None
 
 
 def test_critical_action_never_gets_a_deeplink():
@@ -207,6 +208,154 @@ def test_auto_action_with_genuine_settings_language_is_left_alone():
         category=actionCategory.auto,
         stepGroups=[
             StepGroup(steps=["Go to Settings.", "Tap Display.", "Tap Touch sensitivity."])
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+
+
+def test_auto_action_about_restart_settings_keeps_its_real_deeplink():
+    """Regression guard for the recategorization fix above: the catalog has
+    real entries for *configuring* restart behavior ("Restart on schedule",
+    "Inactivity restart", "Enable/Disable Auto Restart") -- these are
+    legitimate auto actions and must not be swept up by the bare "restart"
+    keyword that correctly catches "press and hold Power to force a restart".
+    """
+    action = Action(
+        actionName="Restart on Schedule Settings",
+        description="It will schedule automatic device restarts.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap General management.",
+                    "Tap Reset.",
+                    "Tap Restart on schedule.",
+                    "Toggle the switch to enable automatic restarts.",
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+    assert "restart" in step_group.actionableDeeplink.description.lower()
+
+
+def test_auto_action_about_fast_charging_keeps_its_real_deeplink():
+    """Regression guard: "charger"/"USB cable" appearing as part of a
+    legitimate settings description ("toggle Fast charging for your USB
+    cable charger") must not be swept up as a physical-hardware step --
+    the catalog has a real "Fast Charging Settings" deeplink for this.
+    """
+    action = Action(
+        actionName="Fast Charging Settings",
+        description="It will speed up your charging time.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap Battery and device care.",
+                    "Tap Battery.",
+                    "Tap Charging.",
+                    "Toggle on Fast charging for your USB cable charger.",
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+
+
+def test_auto_action_about_usb_tethering_keeps_its_real_deeplink():
+    """Same false-positive risk as above, for the real "USB Tethering
+    Settings" catalog entry.
+    """
+    action = Action(
+        actionName="USB Tethering Settings",
+        description="It will let you share data over USB.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap Connections.",
+                    "Tap Mobile Hotspot and Tethering.",
+                    "Toggle on USB tethering to share data via USB cable.",
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+
+
+def test_auto_action_about_side_key_binding_keeps_its_real_deeplink():
+    """Regression guard: "Power button" / "Side key" appearing as the name of
+    a settings toggle ("Lock instantly with Power button press", a real
+    catalog entry) must not be swept up as an instruction to physically hold
+    the button down -- only "press and hold ... power/volume" is a genuine
+    force-restart/power-cycle instruction.
+    """
+    action = Action(
+        actionName="Lock Instantly with Side Key",
+        description="It will lock your screen on a button press.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap Advanced features.",
+                    "Tap Side button.",
+                    "Enable Lock instantly with Power button press.",
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+
+
+def test_auto_action_about_double_press_binding_keeps_its_real_deeplink():
+    """Same false-positive risk as above, for the real "Side key double
+    press action" catalog entry -- describing what a press *does* is not an
+    instruction to hold the button down.
+    """
+    action = Action(
+        actionName="Side Button Double Press Action",
+        description="It will set what double-pressing the button does.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Go to Settings.",
+                    "Tap Advanced features.",
+                    "Tap Side button.",
+                    "Under Double press, select Open camera.",
+                    "This configures what the Power button does when pressed twice.",
+                ]
+            )
         ],
     )
     result = deeplink_mapping(_wrap(action), _fake_enrichment())

@@ -447,6 +447,59 @@ def _step_is_supported(
 
     return False
 
+_KEEP_CASE = {"samsung", "galaxy", "bixby", "wi-fi", "bluetooth", "android", "one", "ui"}
+
+
+def _sentence_case(text: str) -> str:
+    """'Screen Display Damage' -> 'Screen display damage'. Acronyms (USB,
+    SIM, 5G) and brand names keep their casing."""
+    words = text.split()
+    out = []
+    for i, w in enumerate(words):
+        if i == 0:
+            out.append(w[:1].upper() + w[1:])
+        elif w.isupper() and len(w) > 1 or any(ch.isdigit() for ch in w) or w.lower() in _KEEP_CASE:
+            out.append(w)
+        else:
+            out.append(w.lower())
+    return " ".join(out)
+
+
+def _repair_title(title: str) -> str:
+    words = re.findall(r"[\w'-]+", title)
+    # "Display Troubleshooting" carries no information beyond the goal line
+    while len(words) > 2 and words[-1].lower() in {"troubleshooting", "configuration", "issue", "issues"}:
+        words.pop()
+    words = words[:3]
+    if len(words) < 2:
+        words = (words or ["Device"]) + ["issue"]
+    return _sentence_case(" ".join(words))
+
+
+def _repair_goal(goal: str, title: str) -> str:
+    """Programmatic fix instead of rejecting the whole plan: collapse
+    'X Troubleshooting Troubleshooting', and rebuild an off-format goal from
+    the title."""
+    goal = re.sub(r"\b(Troubleshooting|Configuration)(\s+\1\b)+", r"\1", goal.strip().rstrip("."))
+    if _validate_goal(goal):
+        return goal
+    topic = re.sub(r"\s+(troubleshooting|configuration)$", "", title.strip(), flags=re.IGNORECASE)
+    topic = " ".join(w[:1].upper() + w[1:] for w in topic.split()) or "Device"
+    return f"Follow these steps to perform this {topic} Troubleshooting"
+
+
+_SMALL_WORDS = {"a", "an", "and", "or", "the", "of", "to", "in", "on", "for", "with", "via", "at", "by"}
+
+
+def _title_case(name: str) -> str:
+    words = name.split()
+    return " ".join(
+        w if (w.isupper() and len(w) > 1) else
+        (w.lower() if (0 < i < len(words) - 1 and w.lower() in _SMALL_WORDS) else w[:1].upper() + w[1:])
+        for i, w in enumerate(words)
+    )
+
+
 def _validate_structure(
     raw: dict[str, Any],
     source_text: str,
@@ -459,6 +512,11 @@ def _validate_structure(
     response = ContextDeeplinkResponse.model_validate(raw)
 
     for context in response.contexts:
+
+        # Repair first (brief: "Enforce programmatic validation, trimming,
+        # and correction loops"), then validate what's left.
+        context.title = _repair_title(context.title)
+        context.goal = _repair_goal(context.goal, context.title)
 
         # ---------------------------
         # Goal
@@ -502,17 +560,12 @@ def _validate_structure(
         ]
 
         if critical_positions:
-            first_critical = min(critical_positions)
-
-            if any(
-                category != "critical"
-                for category in categories[first_critical:]
-            ):
-                raise ValueError(
-                    "Critical actions must appear last"
-                )
+            # Stable re-order instead of discarding a whole valid plan.
+            context.actions.sort(
+                key=lambda a: 1 if a.category.value == "critical" else 0
+            )
         for action in context.actions:
-            
+            action.actionName = _title_case(action.actionName)
             action.description = _normalize_description(
                 action.description
             )
@@ -552,17 +605,18 @@ def _validate_structure(
                 # ---------------------------
                 # Grounding
                 # ---------------------------
-                for step in group.steps:
+                # Drop ungrounded steps instead of discarding the entire
+                # plan because of one paraphrased line.
+                dropped = [s for s in group.steps if not _step_is_supported(s, source_text)]
+                if dropped:
+                    print(f"[Stage 1] dropped {len(dropped)} ungrounded step(s): {dropped}")
+                group.steps = [s for s in group.steps if _step_is_supported(s, source_text)]
 
-                    if not _step_is_supported(
-                        step,
-                        source_text,
-                    ):
-                        raise ValueError(
-                            "Step is not sufficiently "
-                            f"grounded in source: {step}"
-                        )
+            action.stepGroups = [g for g in action.stepGroups if g.steps]
 
+        context.actions = [a for a in context.actions if a.stepGroups]
+
+    response.contexts = [c for c in response.contexts if c.actions]
     return response
 
 def structure_extraction(
@@ -691,4 +745,4 @@ Return JSON only.
         )
         # §4.2.3: on any failure, return an empty list — not a crash.
         # The pipeline will attach "fallback": "no_match" automatically.
-        return ContextDeeplinkResponse(contexts=[])
+        return ContextDeeplinkResponse(contexts=[])

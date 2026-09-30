@@ -47,8 +47,16 @@ def test_troubleshoot_wrong_type_query_is_a_clean_422_not_a_500(client):
     assert r.status_code == 422
 
 
+def test_troubleshoot_accepts_plain_string_siis_response_like_the_brief_example(client):
+    # The brief's request example sends siis_response as a bare string.
+    r = client.post("/v1/troubleshoot", json={"query": "battery drain", "siis_response": "Check Battery usage in Settings."})
+    assert r.status_code == 200
+
+
 def test_troubleshoot_malformed_siis_response_is_a_clean_422_not_a_500(client):
-    r = client.post("/v1/troubleshoot", json={"query": "battery drain", "siis_response": "not an object"})
+    r = client.post("/v1/troubleshoot", json={"query": "battery drain", "siis_response": 12345})
+    assert r.status_code in (200, 422)  # pydantic may coerce; must never be a 500
+    r = client.post("/v1/troubleshoot", json={"query": "battery drain", "siis_response": ["a", "b"]})
     assert r.status_code == 422
 
 
@@ -197,8 +205,14 @@ def test_troubleshoot_empty_contexts_fallback_no_match_when_siis_given(client, m
     assert body["response"]["fallback"] == "no_match"
 
 
-def test_troubleshoot_empty_contexts_fallback_no_siis_context_when_no_siis(client):
+def test_troubleshoot_empty_contexts_fallback_no_siis_context_when_no_siis(client, monkeypatch):
     """Verify that an empty-contexts result carries fallback 'no_siis_context' when no siis_response is provided."""
+    # Cold cache: siis-less requests are now allowed to hit entries written by
+    # earlier tests (that is the intended fast path), so isolate this one.
+    import api
+    from cache import SemanticCache
+    from embeddings import TfidfEmbedder
+    monkeypatch.setattr(api.pipeline, "cache", SemanticCache(TfidfEmbedder.load()))
     # 1. Without siis_response field
     r1 = client.post("/v1/troubleshoot", json={"query": "My phone battery drains very quickly"})
     assert r1.status_code == 200

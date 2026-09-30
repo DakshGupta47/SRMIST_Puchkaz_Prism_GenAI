@@ -19,7 +19,8 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -43,6 +44,16 @@ pipeline = Pipeline(
     stage1_fn=structure_extraction,
     stage2_fn=deeplink_mapping,
 )
+
+# Pre-warm the semantic cache so siis-less requests have something to hit on a
+# fresh start. CACHE_WARM_FILE="" disables it (the test suite does this).
+_WARM_FILE = os.getenv("CACHE_WARM_FILE", str(Path(__file__).resolve().parent.parent / "results.jsonl"))
+if _WARM_FILE:
+    try:
+        _warmed = pipeline.warm_from_results(_WARM_FILE)
+        logger.info("Semantic cache pre-warmed with %d entries from %s", _warmed, _WARM_FILE)
+    except Exception:
+        logger.exception("Cache pre-warm failed; continuing with an empty cache")
 
 
 @app.exception_handler(Exception)
@@ -72,7 +83,10 @@ class SiisResponse(BaseModel):
 
 class TroubleshootRequest(BaseModel):
     query: str
-    siis_response: Optional[SiisResponse] = None
+    # The brief's own request example sends siis_response as a bare string
+    # ("<optional raw text context>"); the kit's siis_responses.json uses a
+    # {title, content} object. Accept both.
+    siis_response: Optional[Union[SiisResponse, str]] = None
 
 
 class EnrichRequest(BaseModel):
@@ -84,7 +98,10 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("REQUEST_TIMEOUT_SECOND
 
 @app.post("/v1/troubleshoot", response_model=TroubleshootResponse)
 def troubleshoot(req: TroubleshootRequest) -> dict:
-    siis_response = req.siis_response.model_dump() if req.siis_response else {}
+    if isinstance(req.siis_response, str):
+        siis_response = {"title": "", "content": req.siis_response}
+    else:
+        siis_response = req.siis_response.model_dump() if req.siis_response else {}
     if isinstance(siis_response, dict) and not any(str(v).strip() for v in siis_response.values()):
         siis_response = {}
 

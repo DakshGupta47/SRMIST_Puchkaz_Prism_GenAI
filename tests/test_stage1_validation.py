@@ -62,7 +62,8 @@ def test_valid_structure():
         llm_client=FakeValidLLM(),
     )
     assert len(result.contexts) == 1
-    assert result.contexts[0].title == "Display Troubleshooting"
+    # brief: title is sentence case; "Troubleshooting" is dropped as redundant only when >2 words
+    assert result.contexts[0].title == "Display troubleshooting"
 
 
 def test_empty_result_is_allowed():
@@ -232,3 +233,11 @@ def test_irrelevant_reference_is_rejected_before_llm():
     )
 
     assert result.contexts == []
+
+def test_repairs_duplicate_goal_suffix_title_case_and_critical_order():
+    from structure_extraction import _repair_goal, _repair_title
+    assert _repair_goal("Follow these steps to perform this Display Troubleshooting Troubleshooting", "x") \
+        == "Follow these steps to perform this Display Troubleshooting"
+    assert _repair_title("Cracked Screen Service") == "Cracked screen service"
+    assert _repair_title("Camera Screen Troubleshooting") == "Camera screen"
+    assert _repair_title("Blank") == "Blank issue"

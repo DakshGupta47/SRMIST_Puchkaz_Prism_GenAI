@@ -416,9 +416,15 @@ GET  /healthz            -> {"status": "ok"}  (alias, common infra convention, n
 The `/v1/troubleshoot` request shape is confirmed against `data/siis_responses.json`'s
 own readme note ("`siis_response` is the payload your API must accept in
 `POST /v1/troubleshoot`") and its actual per-record `{"title", "content"}`
-shape — the official theme brief's own request example shows a bare
-`"<optional raw text context>"` string, but the real provided data is an
-object, and that's what's implemented. The response shape matches the
+shape. The official theme brief's own request example shows a bare
+`"<optional raw text context>"` string, so **both** are accepted: an object
+is used as-is, a string is treated as `{"title": "", "content": <string>}`.
+
+On startup `api.py` pre-warms the semantic cache from `results.jsonl`
+(validated answers, no LLM calls), so a request with no `siis_response` is
+answered by "semantic lookup against pre-warmed cache entries" as the brief
+specifies. Set `CACHE_WARM_FILE=` (empty) to start cold, or point it at
+another results file. The response shape matches the
 brief's §5 contract and Appendix B worked example exactly: `query_variations`
 is top-level (not nested in `enrichment`), and `cache_hit`/`latency_ms`/
 `model`/`cost_usd` are nested under `meta` (not flat top-level fields, which
@@ -426,6 +432,41 @@ is what an earlier version of this API did before the brief was checked
 line-by-line — see bug #7 below). `enrichment` itself isn't part of the
 official contract; it's kept as an additive debug field since the brief
 doesn't forbid extra top-level keys.
+
+## Pre-submission review fixes (30 Sep 2026)
+
+1. **`meta.cost_usd` was always 0.0 for real providers.** `_TimeoutGuardedClient`
+   drained its own counter, but token usage is recorded on the inner provider
+   client. It now delegates `consume_cost()`.
+2. **Empty answers were cached.** A query first seen without `siis_response`
+   cached `no_siis_context`, and a later request for the same complaint *with*
+   reference text got that empty answer from cache. Empty results are no longer cached.
+3. **Cache hits could come from a different article.** Entries now record a
+   fingerprint of the `siis_response`; a request that carries reference text only
+   hits entries built from that same text. Requests without it match any entry.
+4. **Device-less complaints never used the cache.** The gate was
+   `min(device_conf, symptom_conf)`, so "phone screen black wont turn on" always
+   took the cold path, and the cache's unknown-device wildcard never triggered
+   ("Samsung device" was passed as a literal device). The gate is now the symptom
+   match; unknown devices are wildcards.
+5. **Device spelling split the cache.** "Galaxy Z Flip 7" / "Z Flip 7" / "Galaxy Flip7"
+   are one key now, and "A15/A16" covers "A16". `extract_device` also no longer
+   turns "Samsung Galaxy Z Flip 6" into "Samsung Galaxy Z".
+6. **No cache pre-warm.** See API section.
+7. **String `siis_response` returned 422.** Now accepted (brief's own example).
+8. **Category / ordering.** Stage 2 re-labels non-auto actions by name as well
+   (restart/safe mode/factory reset -> critical, service centre/repair -> manual)
+   and re-sorts so critical actions are always last.
+9. **Stage 1 threw away whole plans for one fixable issue.** It now repairs instead of
+   rejecting: collapses "... Troubleshooting Troubleshooting", sentence-cases titles,
+   Title-Cases action names, re-orders critical actions last, and drops individual
+   ungrounded steps instead of the whole answer.
+10. Cache hits return a deep copy; Anthropic `max_tokens` raised to 4096 (1024
+    truncated long plans); a failed provider init is logged instead of silently
+    using the mock; `google-generativeai` added to requirements; Docker image
+    now ships `results.jsonl` for pre-warm.
+
+Tests: `tests/test_review_fixes.py`. Paraphrase hit rate: `scripts/eval_paraphrase_hits.py`.
 
 ## Known gaps / honest limitations
 
