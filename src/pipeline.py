@@ -102,6 +102,7 @@ from llm_client import get_llm_client
 from schema import ContextDeeplinkResponse
 from scrubber import scrub_response
 from structure_extraction import structure_extraction
+from deeplink_mapping import deeplink_mapping
 
 # -- Member B / Member C extension points --------------------------------
 # Signature each stage must implement. `enrichment` is passed through so
@@ -133,7 +134,7 @@ class Pipeline:
         self,
         cache: Optional[SemanticCache] = None,
         stage1_fn: Stage1Fn = structure_extraction,
-        stage2_fn: Stage2Fn = _stage2_not_wired,
+        stage2_fn: Stage2Fn = deeplink_mapping,
         llm_client=None,
     ):
         self.cache = cache or SemanticCache(TfidfEmbedder.load())
