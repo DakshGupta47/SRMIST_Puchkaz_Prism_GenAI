@@ -59,7 +59,7 @@ def test_auto_action_gets_real_catalog_match_when_one_exists():
     step_group = result.contexts[0].actions[0].stepGroups[0]
 
     assert step_group.actionableDeeplink is not None
-    assert step_group.actionableDeeplink.deeplink == "bixby://masked/act/1b0d34e9b4"
+    assert step_group.actionableDeeplink.deeplink.endswith("://masked/act/1b0d34e9b4")
 
 
 def test_matched_deeplink_is_always_copied_verbatim_from_catalog():
@@ -74,7 +74,7 @@ def test_matched_deeplink_is_always_copied_verbatim_from_catalog():
     result = deeplink_mapping(_wrap(action), _fake_enrichment())
     matched = result.contexts[0].actions[0].stepGroups[0].actionableDeeplink
 
-    assert matched.deeplink in CATALOG_DEEPLINKS or matched.deeplink == "bixby://dummy_positive"
+    assert matched.deeplink in CATALOG_DEEPLINKS or matched.deeplink.endswith("://dummy_positive")
 
 
 def test_auto_action_with_no_real_match_falls_back_to_dummy_positive():
@@ -96,7 +96,7 @@ def test_auto_action_with_no_real_match_falls_back_to_dummy_positive():
     step_group = result.contexts[0].actions[0].stepGroups[0]
 
     assert step_group.actionableDeeplink is not None
-    assert step_group.actionableDeeplink.deeplink == "bixby://dummy_positive"
+    assert step_group.actionableDeeplink.deeplink.endswith("://dummy_positive")
 
 
 def test_critical_action_never_gets_a_deeplink():

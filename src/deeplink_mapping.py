@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from embeddings import TfidfEmbedder
@@ -14,14 +15,22 @@ _catalog = None
 _catalog_texts = None
 _catalog_matrix = None
 _embedder = None
+_placeholder = None
+
+_STOP = {"and", "or", "the", "a", "of", "to", "in", "for", "with"}
 
 
 def _load_catalog():
-    global _catalog, _catalog_texts, _catalog_matrix, _embedder
+    global _catalog, _catalog_texts, _catalog_matrix, _embedder, _placeholder
     if _catalog is not None:
         return
     raw = json.loads((DATA_DIR / "deeplinks.json").read_text())
-    _catalog = raw["deeplinks"]
+    entries = raw["deeplinks"]
+    _placeholder = next(
+        (d["deeplink"] for d in entries if d.get("originalType") == "placeholder"),
+        entries[0]["deeplink"].split("://")[0] + "://dummy_positive",
+    )
+    _catalog = [d for d in entries if d.get("originalType") != "placeholder"]
     _catalog_texts = [
         f"{d.get('description','')} {d.get('message','')} {d.get('qna_description','')}"
         for d in _catalog
@@ -38,11 +47,28 @@ def _best_match(step_text: str):
     return _catalog[best_idx], float(sims[best_idx])
 
 
-def _dummy_positive(step_text: str) -> Deeplink:
+def _core(name: str) -> list[str]:
+    ws = [w for w in re.findall(r"[A-Za-z0-9+]+", name)
+          if w.lower() not in {"settings", "setting"}][:4]
+    while ws and ws[-1].lower() in _STOP:
+        ws.pop()
+    return [w.lower() for w in ws]
+
+
+def _fit(words: list[str], lo: int = 5, hi: int = 7) -> str:
+    words = words[:hi]
+    while len(words) < lo:
+        words.insert(1, "device")
+    return " ".join(words)
+
+
+def _dummy_positive(action_name: str) -> Deeplink:
+    _load_catalog()
+    c = _core(action_name)
     return Deeplink(
-        deeplink="bixby://dummy_positive",
-        description=f"Open the relevant settings for {step_text[:40]}",
-        message="Open Settings",
+        deeplink=_placeholder,
+        description=_fit(["Open", *c, "settings", "screen"]),
+        message=_fit(["Open", *c, "in", "device", "Settings"]),
     )
 
 
@@ -76,5 +102,5 @@ def deeplink_mapping(
                     )
                     step_group.validationDeeplink = _to_validation_deeplink(match)
                 else:
-                    step_group.actionableDeeplink = _dummy_positive(query_text)
+                    step_group.actionableDeeplink = _dummy_positive(action.actionName)
     return structured
