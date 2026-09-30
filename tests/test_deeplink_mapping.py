@@ -142,6 +142,81 @@ def test_manual_action_without_settings_steps_stays_unlinked():
 
     assert step_group.actionableDeeplink is None
 
+def test_auto_action_with_restart_language_is_recategorized_and_unlinked():
+    """Stage 1 sometimes mislabels a restart/reset step as "auto" -- observed
+    on the real results.jsonl sample (e.g. "Force a Restart", "Force Restart
+    Device"). Without correction, these still go through _best_match() and,
+    depending on catalog vocabulary overlap, could score above
+    SIMILARITY_THRESHOLD and get a real (wrong) deeplink attached.
+    """
+    action = Action(
+        actionName="Force a Restart",
+        description="It will restart the frozen device.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Press and hold both the Power button and the Volume down button simultaneously for at least 20 seconds."
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.critical
+    assert step_group.actionableDeeplink is None
+    assert step_group.validationDeeplink is None
+
+
+def test_auto_action_with_physical_hardware_language_is_recategorized_and_unlinked():
+    """Same bug as above, but for physical-intervention steps (e.g. "Check
+    for Physical Damage and Liquid Exposure", "Charge the Device" in the real
+    sample), which schema.py reserves for "manual", not "auto".
+    """
+    action = Action(
+        actionName="Check for Physical Damage",
+        description="It will rule out hardware causes first.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(
+                steps=[
+                    "Carefully inspect your phone, charger, and USB cable for any physical damage or signs of liquid exposure."
+                ]
+            )
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.manual
+    assert step_group.actionableDeeplink is None
+    assert step_group.validationDeeplink is None
+
+
+def test_auto_action_with_genuine_settings_language_is_left_alone():
+    """Regression guard: the restart/hardware recategorization above must not
+    false-positive on a real settings action and strip its legitimate
+    deeplink.
+    """
+    action = Action(
+        actionName="Touch Sensitivity Settings",
+        description="It will adjust touch sensitivity options.",
+        category=actionCategory.auto,
+        stepGroups=[
+            StepGroup(steps=["Go to Settings.", "Tap Display.", "Tap Touch sensitivity."])
+        ],
+    )
+    result = deeplink_mapping(_wrap(action), _fake_enrichment())
+    fixed_action = result.contexts[0].actions[0]
+    step_group = fixed_action.stepGroups[0]
+
+    assert fixed_action.category == actionCategory.auto
+    assert step_group.actionableDeeplink is not None
+
+
 def test_manual_action_with_settings_steps_gets_no_deeplink():
     action = Action(
         actionName="Touch Sensitivity Settings",

@@ -29,10 +29,16 @@ from enrichment import enrich
 from pipeline import Pipeline
 from deeplink_mapping import deeplink_mapping
 from structure_extraction import structure_extraction
+from response_models import (
+    CacheStatsResponse,
+    EnrichResponse,
+    HealthResponse,
+    TroubleshootResponse,
+)
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Smart Guided Troubleshooting Engine — Member A slice")
+app = FastAPI(title="Smart Guided Troubleshooting Engine")
 pipeline = Pipeline(
     stage1_fn=structure_extraction,
     stage2_fn=deeplink_mapping,
@@ -76,7 +82,7 @@ class EnrichRequest(BaseModel):
 DEFAULT_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "70.0"))
 
 
-@app.post("/v1/troubleshoot")
+@app.post("/v1/troubleshoot", response_model=TroubleshootResponse)
 def troubleshoot(req: TroubleshootRequest) -> dict:
     siis_response = req.siis_response.model_dump() if req.siis_response else {}
     if isinstance(siis_response, dict) and not any(str(v).strip() for v in siis_response.values()):
@@ -107,7 +113,7 @@ def troubleshoot(req: TroubleshootRequest) -> dict:
 
 
 
-@app.post("/v1/enrich")
+@app.post("/v1/enrich", response_model=EnrichResponse)
 def enrich_endpoint(req: EnrichRequest) -> dict:
     """Stage 0 only, exposed standalone so it can be tested/demoed without
     Stage 1/2 being implemented yet.
@@ -115,12 +121,12 @@ def enrich_endpoint(req: EnrichRequest) -> dict:
     return enrich(req.query).to_dict()
 
 
-@app.get("/v1/cache/stats")
+@app.get("/v1/cache/stats", response_model=CacheStatsResponse)
 def cache_stats() -> dict:
     return {"entries": len(pipeline.cache), "similarity_threshold": pipeline.cache.similarity_threshold}
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 def health() -> dict:
     """Exact path the theme brief's §5 API contract names. `pipeline` (cache
     + embedder) is constructed at module import time above, so by the time
@@ -130,7 +136,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/healthz")
+@app.get("/healthz", response_model=HealthResponse)
 def healthz() -> dict:
     """Alias for /health — a common infra convention, not in the brief,
     kept so nothing that already depends on this path breaks.
