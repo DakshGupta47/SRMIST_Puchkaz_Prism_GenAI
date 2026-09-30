@@ -177,6 +177,12 @@ class MockLLMClient(LLMClient):
             }
             return json.dumps(mock_response)
 
+        if "screen lag" in user_prompt.lower():
+            return "touch_lag"
+        elif "display" in user_prompt.lower() or "shattered" in user_prompt.lower():
+            return "display_issue"
+        elif "back up" in user_prompt.lower() or "backup" in user_prompt.lower():
+            return "cloud_sync"
         return user_prompt
 
 
