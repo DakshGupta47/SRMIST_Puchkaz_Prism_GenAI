@@ -572,3 +572,33 @@ def test_half_screen_dark_not_misclassified_as_generic_black_screen():
     result = enrich("My Galaxy S22 screen half is dead, other half's fine.")
     assert result.symptom_category == "half_screen_dark"
     assert result.symptom_category != "screen_blank_black"
+
+def test_handles_extremely_vague_user_prompts():
+    """
+    Real users often submit incredibly vague or poorly worded prompts with zero
+    diagnostic value (e.g., 'help me', 'it is broken').
+    The enrichment pipeline must safely catch these, mark them unclassified,
+    and flag them as low confidence to prevent cache poisoning or hallucinations.
+    """
+    from src.enrichment import normalize_query
+
+    vague_prompts = [
+        "help me",
+        "it doesn't work",
+        "my phone is broken",
+        "TechCorp thing is bad",
+        "fix it please",
+        "hello?",
+        "why is it doing this",
+        "nothing works",
+        "i hate this phone",
+        "aaaaaaarrrgghh",
+        "please respond",
+        "do something"
+    ]
+
+    for prompt in vague_prompts:
+        result = normalize_query(prompt)
+        assert result.symptom_category == "unclassified_issue", f"Failed on: {prompt}"
+        assert result.is_low_confidence is True, f"Failed on: {prompt}"
+        assert "could not be automatically classified" in result.canonical_query.lower()
