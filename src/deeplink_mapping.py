@@ -112,10 +112,28 @@ def _load_catalog():
     _catalog_matrix = _embedder.encode_sparse(_catalog_texts)
 
 
-def _best_match(step_text: str):
+def _best_match(step_text: str, action_name: str = ""):
     _load_catalog()
     q = _embedder.encode_sparse([step_text])
     sims = (_catalog_matrix @ q.T).toarray().ravel()
+    
+    if action_name:
+        an = action_name.lower()
+        for i, catalog_item in enumerate(_catalog):
+            msg = catalog_item.get('message', '').lower()
+            
+            # Penalize false positives where catalog has a strong keyword but action doesn't
+            if 'sync' in msg and 'sync' not in an: sims[i] *= 0.5
+            if 'back up' in msg and 'back' not in an: sims[i] *= 0.5
+            if 'reset' in msg and 'reset' not in an: sims[i] *= 0.5
+            if 'update' in msg and 'update' not in an: sims[i] *= 0.5
+            
+            # Boost true positives where both action and catalog share the specific keyword
+            if 'sync' in msg and 'sync' in an: sims[i] *= 1.5
+            if 'back up' in msg and 'back' in an: sims[i] *= 1.5
+            if 'reset' in msg and 'reset' in an: sims[i] *= 1.5
+            if 'update' in msg and 'update' in an: sims[i] *= 1.5
+            
     best_idx = sims.argmax()
     return _catalog[best_idx], float(sims[best_idx])
 
@@ -175,12 +193,12 @@ def deeplink_mapping(
                     step_group.validationDeeplink = None
                     continue
                 
-                query_text = " ".join(step_group.steps)
-                match, score = _best_match(query_text)
+                query_text = action.actionName + " " + " ".join(step_group.steps)
+                match, score = _best_match(query_text, action.actionName)
                 
                 # If the full steps text is low confidence, recheck against just the action name
                 if score < SIMILARITY_THRESHOLD:
-                    alt_match, alt_score = _best_match(action.actionName)
+                    alt_match, alt_score = _best_match(action.actionName, action.actionName)
                     if alt_score > score:
                         match, score = alt_match, alt_score
 
