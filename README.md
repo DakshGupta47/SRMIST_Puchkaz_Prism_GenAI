@@ -1,6 +1,6 @@
-# Theme 02 — Smart Guided Troubleshooting Engine — Member A's slice
+# Theme 02 - Smart Guided Troubleshooting Engine (Full Team Pipeline)
 
-Owns **Stage 0 (query enrichment)** and **Stage 3 (semantic cache)** of the
+Integrates **Stage 0 (query enrichment)**, **Stage 1 (structure extraction)**, **Stage 2 (deeplink mapping)**, and **Stage 3 (semantic cache)** of the
 team's pipeline: normalize a raw customer complaint, generate 8-10
 paraphrases across registers, and serve a previously-validated answer
 from cache in under 300ms when a semantically-equivalent query comes back.
@@ -9,18 +9,22 @@ from cache in under 300ms when a semantically-equivalent query comes back.
 
 ```
 src/
-  enrichment.py    Stage 0 — normalize_query / generate_variations / enrich()
-  cache.py         Stage 3 — SemanticCache (embedding-based, device-gated)
-  embeddings.py    embedding backend (see "Why TF-IDF, not sentence-transformers" below)
-  llm_client.py    pluggable LLM client (Gemini/OpenAI/Anthropic/offline mock)
-  pipeline.py      wires Stage 0 + Stage 3 together; extension points for Stage 1/2
-  api.py           FastAPI app exposing POST /v1/troubleshoot, /v1/enrich, /v1/cache/stats
-  schema.py        team's response schema (copied from the input kit, unmodified)
-data/              copied from participant-kit/Theme02_Input_Kit/student_kit
-artifacts/         tfidf_vectorizer.pkl (generated — see below)
-scripts/build_corpus_vectorizer.py   fits + saves the vectorizer
-tests/             pytest suite: 152 tests, enrichment + cache + pipeline + api + no-hallucination
-```
+  enrichment.py    Stage 0 - normalize_query / generate_variations / enrich()
+  structure_extraction.py Stage 1 - LLM parsing and schema mapping
+  deeplink_mapping.py Stage 2 - TF-IDF based semantic deeplink mapping
+  cache.py         Stage 3 - SemanticCache (embedding-based, device-gated)
+  scrubber.py      Zero-URL-leak scrubber to sanitize outputs
+  embeddings.py    embedding backend
+  llm_client.py    pluggable LLM client (Gemini/OpenAI/offline mock)
+  pipeline.py      wires Stage 0, Stage 1, Stage 2, and Stage 3
+  api.py           FastAPI app exposing POST /v1/troubleshoot (w/ response models)
+  schema.py        team's response schema
+  response_models.py OpenAPI validation models
+data/              copied from participant-kit
+artifacts/         tfidf_vectorizer.pkl
+scripts/           generation and validation tools (generate_results.py, etc.)
+tests/             pytest suite: 182 tests
+Dockerfile         containerization
 
 ## Setup
 
@@ -439,3 +443,6 @@ doesn't forbid extra top-level keys.
   concurrent load — only correctness. Fine for the hackathon's demo/eval
   harness; a real deployment with sustained concurrent traffic would want a
   sharded or read-write lock instead of one global one.
+
+
+
