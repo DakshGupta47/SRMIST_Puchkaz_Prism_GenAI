@@ -71,14 +71,14 @@ _DEVICE_PATTERN = re.compile(
 )
 
 
-UNKNOWN_DEVICE_LABEL = "Samsung device"  # fallback when no specific model is recognized
+UNKNOWN_DEVICE_LABEL = "TechCorp device"  # fallback when no specific model is recognized
 
 
 def extract_device(raw: str) -> str:
-    # Drop a "Samsung" brand prefix in front of "Galaxy" first: regex search is
+    # Drop a "Samsung" brand prefix in front of "Nexa" first: regex search is
     # leftmost-first, so "Samsung Galaxy Z Flip 6" used to be captured by the
     # generic "Samsung Galaxy <word>" branch as just "Samsung Galaxy Z".
-    raw = re.sub(r"(?i)\bsamsung\s+(?=galaxy\b)", "", raw)
+    raw = re.sub(r"(?i)\btechcorp\s+(?=nexa\b)", "", raw)
     match = _DEVICE_PATTERN.search(raw)
     if not match:
         return UNKNOWN_DEVICE_LABEL
@@ -88,7 +88,7 @@ def extract_device(raw: str) -> str:
         # complaint typed in lowercase ("my sm-a536e...") shouldn't come out as
         # "Sm-a536e" from the generic title-casing below.
         return device.upper()
-    # Normalize casing: "galaxy s22" -> "Galaxy S22"
+    # Normalize casing: "galaxy s22" -> "Nexa S22"
     return " ".join(w[0].upper() + w[1:] if w and w[0].isalpha() else w for w in device.split())
 
 
@@ -673,7 +673,7 @@ def _llm_classify_and_paraphrase(raw: str, client: LLMClient, n: int = LLM_EXTRA
     """
     category_list = "\n".join(f"- {s.category}: {s.label}" for s in SYMPTOM_TAXONOMY)
     system_prompt = (
-        "You do two things for a Samsung device support complaint.\n"
+        "You do two things for a TechCorp device support complaint.\n"
         "1. Classify it into EXACTLY ONE of the category codes listed below, or "
         "\"unclassified_issue\" if none of them genuinely describe the complaint. "
         "Never invent a new category code that isn't in the list.\n"
@@ -710,7 +710,7 @@ def _llm_classify_symptom(raw: str, client: LLMClient) -> Optional[str]:
     """
     category_list = "\n".join(f"- {s.category}: {s.label}" for s in SYMPTOM_TAXONOMY)
     system_prompt = (
-        "You classify a Samsung device support complaint into EXACTLY ONE of the "
+        "You classify a TechCorp device support complaint into EXACTLY ONE of the "
         "category codes listed below, or \"unclassified_issue\" if none of them "
         "genuinely describe the complaint. Never invent a new category code that "
         "isn't in the list. Never add a symptom, device, or detail that isn't "
@@ -740,7 +740,7 @@ class EnrichmentResult:
     symptom_category: str
     symptom_label: str
     device_confidence: float = 0.0    # 1.0 if a specific model was recognized, 0.0 if the
-                                       # generic "Samsung device" fallback was used
+                                       # generic "TechCorp device" fallback was used
     symptom_confidence: float = 0.0   # 0.0 for "unclassified_issue"; see _symptom_confidence_from_hits
     classification_source: str = "keyword_match"  # "keyword_match" | "llm_fallback" | "unclassified"
     query_variations: List[str] = field(default_factory=list)

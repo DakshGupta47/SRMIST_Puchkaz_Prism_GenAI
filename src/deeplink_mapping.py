@@ -130,7 +130,7 @@ def _core(name: str) -> list[str]:
 
 def _fit(words: list[str], lo: int = 5, hi: int = 7) -> str:
     words = words[:hi]
-    fillers = iter(["device", "the", "Galaxy"])
+    fillers = iter(["device", "the", "Nexa"])
     while len(words) < lo:
         words.insert(1, next(fillers, "device"))
     return " ".join(words)

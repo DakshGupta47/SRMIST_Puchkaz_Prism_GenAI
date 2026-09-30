@@ -18,14 +18,14 @@
                   "Select Back up data to secure your personal files."
                 ],
                 "actionableDeeplink": {
-                  "deeplink": "bixby://masked/act/b3ed3ed663",
-                  "description": "Enables data backup to Samsung Cloud via device Settings on the device.",
-                  "message": "Enable Back up data (Samsung Cloud)",
+                  "deeplink": "voiceassist://masked/act/b3ed3ed663",
+                  "description": "Enables data backup to TechCorp Cloud via device Settings on the device.",
+                  "message": "Enable Back up data (TechCorp Cloud)",
                   "originalType": "onURL"
                 },
                 "validationDeeplink": {
-                  "deeplink": "bixby://masked/val/266037d0c5",
-                  "key": "Back up data (Samsung Cloud)",
+                  "deeplink": "voiceassist://masked/val/266037d0c5",
+                  "key": "Back up data (TechCorp Cloud)",
                   "resultType": "boolean",
                   "condition": "equal",
                   "value": "True"
@@ -36,11 +36,11 @@
           },
           {
             "actionName": "Schedule Screen Repair Service",
-            "description": "It will help you locate the nearest Samsung service center and schedule",
+            "description": "It will help you locate the nearest TechCorp service center and schedule",
             "stepGroups": [
               {
                 "steps": [
-                  "Contact Samsung Support or visit an authorized Samsung Service Center.",
+                  "Contact Customer Support or visit an authorized TechCorp Service Center.",
                   "Provide device details regarding the peeling film and green display lines to initiate service."
                 ],
                 "actionableDeeplink": null,

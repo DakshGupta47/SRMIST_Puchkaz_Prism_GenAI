@@ -422,7 +422,7 @@ def test_llm_variations_parse_correctly_when_response_is_wrapped_in_markdown_cod
 
     class MarkdownFencedLLM(LLMClient):
         def complete(self, system_prompt, user_prompt):
-            return '```json\n["my samsung device fails to register keystrokes right", "samsung keyboard is terrible now"]\n```'
+            return '```json\n["my techcorp device fails to register keystrokes right", "techcorp keyboard is terrible now"]\n```'
 
     # a keyword_match result would skip the LLM call entirely (see
     # test_confident_keyword_match_skips_the_llm_paraphrase_call) so this
